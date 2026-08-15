@@ -1,0 +1,30 @@
+/*
+ * fodafont.css — خط Foda Free على كامل واجهة brxon (chrome UI)
+ * المفروض انه هون تكون الرخصه ونوعها موجوده بس بعدين بكتبها 
+ * لا يشمل: محتوى مواقع الويب، ولا صفحة about:newtab الأصلية (CSP صارم فيها)
+ */
+
+@font-face {
+  font-family: "Brxon-Foda";
+  src: url("chrome://browser/content/zen-fonts/FodaFree.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+}
+
+:root {
+  --brxon-ui-font: "Brxon-Foda", "Zen-Junicode", sans-serif;
+}
+
+/* الشامل — نفس نمط Zen الأصلي — يغطي كل واجهة المتصفح */
+*:not(.titlebar-buttonbox-container *) {
+  font-family: var(--brxon-ui-font);
+}
+
+/* استثناء دقيق: أعد الخط الافتراضي لأي عنصر <browser> يستضيف محتوى صفحة
+   (مواقع ويب أو about:newtab الأصلية) — يمنع توارث الخط لمحتوى معزول
+   عنده CSP صارم يرفض تحميل خطوط خارجية */
+browser,
+.browserStack,
+#tabbrowser-tabpanels browser {
+  font-family: revert !important;
+}

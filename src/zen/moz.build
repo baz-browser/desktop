@@ -9,7 +9,6 @@ EXTRA_PP_COMPONENTS += [
 DIRS += [
     "boosts",
     "common",
-    "compact-mode",
     "drag-and-drop",
     "glance",
     "live-folders",
@@ -22,5 +21,4 @@ DIRS += [
     "spaces",
     "space-routing",
     "sync",
-    "window-drag",
 ]

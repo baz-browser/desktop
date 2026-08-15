@@ -7,6 +7,8 @@
  * colors, border radius, etc.
  * We have `--zen-border-radius` and `--zen-primary-color` as variables.
  */
+/* هذا استيراد لملف تنسيق الخط هيك اسهل والافضل نعد متغير zen-primary-color بس حاليا تعبان وزهقان بنخليها بعدين */
+@import url("chrome://browser/content/zen-styles/zen-fodafont.css");
 
 :host(:is(.anonymous-content-host, notification-message)),
 :root {
@@ -190,7 +192,7 @@
   --urlbar-box-active-bgcolor: var(--toolbarbutton-hover-background) !important;
   --zen-input-border-color: light-dark(rgb(204, 204, 204), rgb(66, 65, 77));
   --urlbar-box-hover-bgcolor: var(--toolbarbutton-hover-background) !important;
-  --input-text-background-color: light-dark(rgba(255, 255, 255, 0.2), rgba(0, 0, 0, 0.2)) !important;
+  --input-bgcolor: light-dark(rgba(255, 255, 255, 0.2), rgba(0, 0, 0, 0.2)) !important;
   --toolbar-field-focus-background-color: light-dark(
     rgba(255, 255, 255, 0.25),
     rgba(0, 0, 0, 0.3)

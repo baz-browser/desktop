@@ -4,3 +4,5 @@
 
         content/browser/zen-fonts/JunicodeVF-Italic.woff2                       (../../zen/fonts/JunicodeVF-Italic.woff2)
         content/browser/zen-fonts/JunicodeVF-Roman.woff2                        (../../zen/fonts/JunicodeVF-Roman.woff2)
+        #هي الخط الافتراضي الاساسي مالقيت خط روشن او النسخ خليه مؤقتا
+        content/browser/zen-fonts/FodaFree.woff2                                  (../../zen/fonts/FodaFree.woff2)

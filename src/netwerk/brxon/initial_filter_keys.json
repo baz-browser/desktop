@@ -1,0 +1,16 @@
+{
+  "note":           "احتفظ بالمفتاح الخاص في مكان آمن — لا تشاركه",
+  "version":        1,
+  "public_key_hex": "b5a884739e68f05b0cf7128f0de224c849f68644e78a97963611145309f106c7",
+  "private_key_hex":"bd849075423cbf8c18703466addfb3ef9a26bae139006bb694450529cfba695c",
+  "sha256":         "704e759ca598c85f2f27cebe674dbb015a4d61203137f1b44f7fe5093c49c215",
+  "signature":      "5d7370559fcbfcc20e7f66112320adf4b1704ac6a832a41e7c16eb0228b82dd0f4a1ba13019f1137f4777df919c5d8f647ba264e1efc20d52653afb7096e7b07",
+  "m_bytes":        4792530,
+  "k":              13,
+  "domains_added":  514403,
+  "fill_ratio_pct": 15.93,
+  "rust_key_array": "[\n    0xB5, 0xA8, 0x84, 0x73, 0x9E, 0x68, 0xF0, 0x5B,
+    0x0C, 0xF7, 0x12, 0x8F, 0x0D, 0xE2, 0x24, 0xC8,
+    0x49, 0xF6, 0x86, 0x44, 0xE7, 0x8A, 0x97, 0x96,
+    0x36, 0x11, 0x14, 0x53, 0x09, 0xF1, 0x06, 0xC7\n]"
+}
