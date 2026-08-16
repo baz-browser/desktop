@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       display-version:
-        description: " 1.0.0 "
+        description: "1.0.0"
         required: true
         default: "1.0.0"
         type: string
@@ -18,6 +18,8 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: 0
+      ZEN_GA_DISABLE_PGO: "1"
+      ZEN_DISABLE_LTO: "1"
 
     steps:
       - name: Free Disk Space (Ubuntu)
@@ -78,6 +80,75 @@ jobs:
           . "$HOME/.cargo/env"
           npm run import
 
+      - name: Verify brxon wiring targets exist
+        run: |
+          grep -n "brxon-block" engine/browser/components/about/AboutRedirector.cpp && echo "OK: AboutRedirector.cpp" || (echo "MISSING: AboutRedirector.cpp" && exit 1)
+          grep -n "'brxon-block'" engine/browser/components/about/components.conf && echo "OK: components.conf" || (echo "MISSING: components.conf" && exit 1)
+
+      - name: Wire brxon into gkrust-shared
+        run: |
+          SHARED_CARGO="engine/toolkit/library/rust/shared/Cargo.toml"
+          SHARED_LIB="engine/toolkit/library/rust/shared/lib.rs"
+          BRXON_CARGO="engine/netwerk/brxon/Cargo.toml"
+          BRXON_MOZBUILD="engine/netwerk/brxon/moz.build"
+
+          if grep -v '^\s*#' "$BRXON_MOZBUILD" | grep -q 'RustLibrary("brxon")'; then
+            echo "FAIL: RustLibrary(\"brxon\") found, expected rlib overlay"
+            cat "$BRXON_MOZBUILD"
+            exit 1
+          fi
+          if ! grep -q 'crate-type = \["rlib"\]' "$BRXON_CARGO"; then
+            echo "FAIL: crate-type is not rlib"
+            cat "$BRXON_CARGO"
+            exit 1
+          fi
+
+          if grep -q '^brxon = ' "$SHARED_CARGO"; then
+            echo "Already wired in Cargo.toml"
+          else
+            awk '
+            /^\[dependencies\]/ && !done {
+              print $0
+              print "brxon = { path = \"../../../../netwerk/brxon\" }"
+              done = 1
+              next
+            }
+            { print $0 }
+            ' "$SHARED_CARGO" > "${SHARED_CARGO}.tmp" && mv "${SHARED_CARGO}.tmp" "$SHARED_CARGO"
+          fi
+          grep -n "brxon" "$SHARED_CARGO"
+
+          if grep -q "extern crate brxon;" "$SHARED_LIB"; then
+            echo "Already wired in lib.rs"
+          else
+            echo "extern crate brxon;" >> "$SHARED_LIB"
+          fi
+          grep -n "brxon" "$SHARED_LIB"
+
+          source "$HOME/.cargo/env"
+          cd engine
+          cargo update -p gkrust-shared 2>&1
+          grep -n -A2 'name = "brxon"' Cargo.lock
+
+      - name: Verify ThreatBlocker linkage
+        run: |
+          if [ -f "engine/netwerk/base/ThreatBlocker.cpp" ] && grep -q "brxon_init" "engine/netwerk/base/ThreatBlocker.cpp"; then
+            echo "OK: ThreatBlocker.cpp calls brxon_init"
+          else
+            echo "MISSING: ThreatBlocker.cpp or brxon_init call"
+            exit 1
+          fi
+
+      - name: Strip PGO options from mozconfig
+        run: |
+          MOZCONFIG_FILE="engine/mozconfig"
+          if [ -f "$MOZCONFIG_FILE" ]; then
+            sed -i '/with-pgo-profile-path/d;/with-pgo-jarlog/d;/enable-profile-use/d;/^MOZ_PGO/d;/^export MOZ_PGO/d' "$MOZCONFIG_FILE"
+          fi
+
+      - name: Build language packs
+        run: sh scripts/download-language-packs.sh
+
       - name: Bootstrap
         run: |
           cd engine
@@ -85,18 +156,39 @@ jobs:
           ./mach --no-interactive bootstrap --application-choice browser
           cd ..
 
+      - name: Vendor Rust dependencies (brxon)
+        run: |
+          source "$HOME/.cargo/env"
+          cd engine
+          ./mach vendor rust --ignore-modified --force
+
       - name: Build
         env:
           SURFER_COMPAT: x86_64
           ZEN_RELEASE_BRANCH: release
         run: |
           export SURFER_PLATFORM="linux"
-          bash .github/workflows/src/release-build.sh
+          mkdir -p build-logs
+          bash .github/workflows/src/release-build.sh > build-logs/build.log 2>&1
+          RC=$?
+          pkill -9 -f sccache || true
+          if [ $RC -ne 0 ]; then
+            tail -n 300 build-logs/build.log || true
+            grep -n -E "error:|undefined reference|undefined symbol|fatal error|ld:|collect2:" build-logs/build.log | head -50 || true
+          fi
+          exit $RC
+
+      - name: Upload full build log (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baz-build-log
+          path: build-logs/build.log
+          if-no-files-found: warn
 
       - name: Package
         env:
           SURFER_COMPAT: x86_64
-          ZEN_GA_DISABLE_PGO: true
         run: |
           export SURFER_PLATFORM="linux"
           export ZEN_RELEASE=1
