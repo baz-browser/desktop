@@ -3,10 +3,10 @@
   "vendor": "Zen OSS Team",
   "appId": "zen",
   "binaryName": "zen",
-     "version": {
+"version": {
     "product": "firefox",
     "version": "153.0.4",
-    "candidate": "153.0.4",
+    "candidate": "154.0",
     "candidateBuild": 1
   },
   "buildOptions": {
