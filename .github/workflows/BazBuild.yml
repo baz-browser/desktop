@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       display-version:
-        description: " 1.0.0 "
+        description: "1.0.0"
         required: true
         default: "1.0.0"
         type: string
@@ -89,6 +89,7 @@ jobs:
         env:
           SURFER_COMPAT: x86_64
           ZEN_RELEASE_BRANCH: release
+          ZEN_GA_DISABLE_PGO: true
         run: |
           export SURFER_PLATFORM="linux"
           bash .github/workflows/src/release-build.sh
