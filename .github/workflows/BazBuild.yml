@@ -167,11 +167,11 @@ jobs:
           SURFER_COMPAT: x86_64
           ZEN_RELEASE_BRANCH: release
         run: |
-          set -o pipefail
           export SURFER_PLATFORM="linux"
           mkdir -p build-logs
-          bash .github/workflows/src/release-build.sh 2>&1 | tee build-logs/build.log
-          RC=${PIPESTATUS[0]}
+          bash .github/workflows/src/release-build.sh > build-logs/build.log 2>&1
+          RC=$?
+          pkill -9 -f sccache || true
           if [ $RC -ne 0 ]; then
             tail -n 300 build-logs/build.log || true
             grep -n -E "error:|undefined reference|undefined symbol|fatal error|ld:|collect2:" build-logs/build.log | head -50 || true
