@@ -1,0 +1,224 @@
+diff --git a/browser/base/jar.mn b/browser/base/jar.mn
+index dd0f873535..bef9183e95 100644
+--- a/browser/base/jar.mn
++++ b/browser/base/jar.mn
+@@ -104,2 +104,3 @@ browser.jar:
+         content/browser/blockedSite.js                  (content/blockedSite.js)
++        content/browser/shield/blocked.html             (../components/shield/blocked.html)
+         content/browser/spotlight.html                (content/spotlight.html)
+diff --git a/browser/components/about/AboutRedirector.cpp b/browser/components/about/AboutRedirector.cpp
+index 958db7176c..b7dbf7a571 100644
+--- a/browser/components/about/AboutRedirector.cpp
++++ b/browser/components/about/AboutRedirector.cpp
+@@ -60,2 +60,6 @@ static const RedirEntry kRedirMap[] = {
+          nsIAboutModule::HIDE_FROM_ABOUTABOUT},
++    {"brxon-block", "chrome://browser/content/shield/blocked.html",
++     nsIAboutModule::URI_SAFE_FOR_UNTRUSTED_CONTENT |
++         nsIAboutModule::ALLOW_SCRIPT |
++         nsIAboutModule::HIDE_FROM_ABOUTABOUT},
+     {"certerror", "chrome://global/content/aboutNetError.html",
+diff --git a/browser/components/about/components.conf b/browser/components/about/components.conf
+--- a/browser/components/about/components.conf
++++ b/browser/components/about/components.conf
+@@ -6,6 +6,7 @@
+     'aichatcontent',
+     'asrouter',
+     'blocked',
++    'brxon-block',
+     'certerror',
+     'downloads',
+     'framecrashed',
+diff --git a/layout/build/components.conf b/layout/build/components.conf
+index a9a3af59a8..a1e89a1bab 100644
+--- a/layout/build/components.conf
++++ b/layout/build/components.conf
+@@ -50,2 +50,12 @@ if defined('MOZ_WEBM'):
+ Classes = [
++    {
++        'cid': '{880acbdf-1dbc-402b-89bc-8294d2b6353a}',
++        'contract_ids': ['@mozilla.org/threat-blocker;1'],
++        'type': 'mozilla::net::ThreatBlocker',
++        'headers': ['/netwerk/base/ThreatBlocker.h'],
++        'categories': {'content-policy': '@mozilla.org/threat-blocker;1'},
++        'singleton': True,
++        'constructor': 'mozilla::net::ThreatBlocker::GetSingleton',
++    },
++    
+     {
+diff --git a/netwerk/base/moz.build b/netwerk/base/moz.build
+index 2d551ad265..76d563fc7c 100644
+--- a/netwerk/base/moz.build
++++ b/netwerk/base/moz.build
+@@ -172,2 +172,3 @@ EXPORTS.mozilla.net += [
+     "SSLTokensCache.h",
++    "ThreatBlocker.h",
+     "ThrottleQueue.h",
+@@ -250,2 +251,3 @@ UNIFIED_SOURCES += [
+     "SuspendableChannelWrapper.cpp",
++    "ThreatBlocker.cpp",
+     "ThrottleQueue.cpp",
+diff --git a/netwerk/moz.build b/netwerk/moz.build
+index 86de8bc732..fb18b6cff5 100644
+--- a/netwerk/moz.build
++++ b/netwerk/moz.build
+@@ -9,2 +9,3 @@ DIRS += [
+     "base",
++    "brxon",
+     "cookie",
+diff --git a/build/workspace-hack/Cargo.toml b/build/workspace-hack/Cargo.toml
+index 0000000000..0000000001 100644
+--- a/build/workspace-hack/Cargo.toml
++++ b/build/workspace-hack/Cargo.toml
+@@ -284,3 +284,4 @@
+ megazord = []
+ embedded-uniffi-bindgen = []
+ nimbus-fml = []
++brxon = []
+diff --git a/Cargo.toml b/Cargo.toml
+index 0000000000..0000000002 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -9,2 +9,3 @@ members = [
+   "netwerk/base/idna_glue",
++  "netwerk/brxon",
+   "netwerk/test/http3server",
+diff --git a/supply-chain/config.toml b/supply-chain/config.toml
+index 0000000000..0000000003 100644
+--- a/supply-chain/config.toml
++++ b/supply-chain/config.toml
+@@ -754,0 +755,111 @@
++[[exemptions.async-compression]]
++version = "0.4.42"
++criteria = "safe-to-deploy"
++[[exemptions.base64ct]]
++version = "1.8.3"
++criteria = "safe-to-deploy"
++[[exemptions.compression-codecs]]
++version = "0.4.38"
++criteria = "safe-to-deploy"
++[[exemptions.compression-core]]
++version = "0.4.32"
++criteria = "safe-to-deploy"
++[[exemptions.const-oid]]
++version = "0.9.6"
++criteria = "safe-to-deploy"
++[[exemptions.curve25519-dalek]]
++version = "4.1.3"
++criteria = "safe-to-deploy"
++[[exemptions.curve25519-dalek-derive]]
++version = "0.1.1"
++criteria = "safe-to-deploy"
++[[exemptions.ed25519]]
++version = "2.2.3"
++criteria = "safe-to-deploy"
++[[exemptions.ed25519-dalek]]
++version = "2.2.0"
++criteria = "safe-to-deploy"
++[[exemptions.http-body]]
++version = "0.4.5"
++criteria = "safe-to-deploy"
++[[exemptions.hyper]]
++version = "0.14.32"
++criteria = "safe-to-deploy"
++[[exemptions.hyper-rustls]]
++version = "0.24.2"
++criteria = "safe-to-deploy"
++[[exemptions.ipnet]]
++version = "2.12.0"
++criteria = "safe-to-deploy"
++[[exemptions.murmur3]]
++version = "0.5.2"
++criteria = "safe-to-deploy"
++[[exemptions.pkcs8]]
++version = "0.10.2"
++criteria = "safe-to-deploy"
++[[exemptions.reqwest]]
++version = "0.11.27"
++criteria = "safe-to-deploy"
++[[exemptions.ring]]
++version = "0.17.14"
++criteria = "safe-to-deploy"
++[[exemptions.rustls]]
++version = "0.21.12"
++criteria = "safe-to-deploy"
++[[exemptions.rustls-pemfile]]
++version = "1.0.4"
++criteria = "safe-to-deploy"
++[[exemptions.rustls-webpki]]
++version = "0.101.7"
++criteria = "safe-to-deploy"
++[[exemptions.sct]]
++version = "0.7.1"
++criteria = "safe-to-deploy"
++[[exemptions.serde_urlencoded]]
++version = "0.7.1"
++criteria = "safe-to-deploy"
++[[exemptions.signal-hook-registry]]
++version = "1.4.8"
++criteria = "safe-to-deploy"
++[[exemptions.signature]]
++version = "2.2.0"
++criteria = "safe-to-deploy"
++[[exemptions.spki]]
++version = "0.7.3"
++criteria = "safe-to-deploy"
++[[exemptions.sync_wrapper]]
++version = "0.1.2"
++criteria = "safe-to-deploy"
++[[exemptions.system-configuration]]
++version = "0.5.1"
++criteria = "safe-to-deploy"
++[[exemptions.system-configuration-sys]]
++version = "0.5.0"
++criteria = "safe-to-deploy"
++[[exemptions.tokio]]
++version = "1.45.1"
++criteria = "safe-to-deploy"
++[[exemptions.tokio-rustls]]
++version = "0.24.1"
++criteria = "safe-to-deploy"
++[[exemptions.tokio-stream]]
++version = "0.1.12"
++criteria = "safe-to-deploy"
++[[exemptions.tower-service]]
++version = "0.3.2"
++criteria = "safe-to-deploy"
++[[exemptions.untrusted]]
++version = "0.9.0"
++criteria = "safe-to-deploy"
++[[exemptions.valuable]]
++version = "0.1.1"
++criteria = "safe-to-deploy"
++[[exemptions.wasm-bindgen-futures]]
++version = "0.4.45"
++criteria = "safe-to-deploy"
++[[exemptions.wasm-streams]]
++version = "0.4.2"
++criteria = "safe-to-deploy"
++[[exemptions.webpki-roots]]
++version = "0.25.4"
++criteria = "safe-to-deploy"
++[[exemptions.windows_aarch64_gnullvm]]
++version = "0.48.5"
++criteria = "safe-to-deploy"
++[[exemptions.windows_aarch64_msvc]]
++version = "0.48.5"
++criteria = "safe-to-deploy"
++[[exemptions.windows_i686_gnu]]
++version = "0.48.5"
++criteria = "safe-to-deploy"
++[[exemptions.windows_i686_msvc]]
++version = "0.48.5"
++criteria = "safe-to-deploy"
++[[exemptions.windows_x86_64_gnu]]
++version = "0.48.5"
++criteria = "safe-to-deploy"
++[[exemptions.windows_x86_64_gnullvm]]
++version = "0.48.5"
++criteria = "safe-to-deploy"
++[[exemptions.windows_x86_64_msvc]]
++version = "0.48.5"
++criteria = "safe-to-deploy"
++[[exemptions.winreg]]
++version = "0.50.0"
++criteria = "safe-to-deploy"
