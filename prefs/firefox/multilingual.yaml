@@ -4,3 +4,6 @@
 
 - name: intl.multilingual.downloadEnabled
   value: false
+
+- name: intl.locale.requested
+  value: "ar"

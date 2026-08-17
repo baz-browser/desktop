@@ -45,3 +45,9 @@
 # Set to a positive value to override with a custom radius
 - name: zen.theme.border-radius
   value: -1
+
+- name: ui.systemUsesDarkTheme
+  value: 1
+
+- name: layout.css.prefers-color-scheme.content-override
+  value: 0
