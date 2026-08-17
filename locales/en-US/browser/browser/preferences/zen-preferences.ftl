@@ -130,7 +130,7 @@ zen-vertical-tabs-expand-tabs-on-hover = Expand Tabs on Hover (Won't work on com
 zen-vertical-tabs-expand-tabs-header = How to expand tabs
 zen-vertical-tabs-expand-tabs-description = Choose how to expand tabs in the sidebar
 
-zen-theme-marketplace-header = Zen Mods
+zen-theme-marketplace-header = Baz Mods
 zen-theme-disable-all-enabled =
     .title = Disable all mods
 zen-theme-disable-all-disabled =
@@ -162,7 +162,7 @@ zen-theme-marketplace-dropdown-default-label =
     .label = None
 zen-theme-marketplace-input-default-placeholder =
     .placeholder = Type something...
-pane-zen-marketplace-title = Zen Mods
+pane-zen-marketplace-title = Baz Mods
 zen-themes-auto-update =
    .label = Automatically update installed mods on startup
 
@@ -182,7 +182,7 @@ zen-compact-mode-styles-left = Hide Tab bar
 zen-compact-mode-styles-top = Hide Top bar
 zen-compact-mode-styles-both = Hide Both
 
-zen-urlbar-title = Zen URL Bar
+zen-urlbar-title = Baz URL Bar
 zen-urlbar-header = General settings for the URL bar
 zen-urlbar-description = Customize the URL bar to your liking
 
@@ -200,7 +200,7 @@ category-zen-CKS =
 pane-settings-CKS-title = { -brand-short-name } Keyboard Shortcuts
 
 category-zen-marketplace =
-    .tooltiptext = Zen Mods
+    .tooltiptext = Baz Mods
 
 zen-settings-CKS-header = Customize your keyboard shortcuts
 zen-settings-CKS-description = Change the default keyboard shortcuts to your liking and improve your browsing experience
@@ -223,7 +223,7 @@ zenCKSOption-group-historyAndBookmarks = History & Bookmarks
 zenCKSOption-group-mediaAndDisplay = Media & Display
 zenCKSOption-group-zen-compact-mode = Compact Mode
 zenCKSOption-group-zen-workspace = Workspaces
-zenCKSOption-group-zen-other = Other Zen Features
+zenCKSOption-group-zen-other = Other Baz Features
 zenCKSOption-group-zen-split-view = Split View
 zenCKSOption-group-devTools = Developer Tools
 
