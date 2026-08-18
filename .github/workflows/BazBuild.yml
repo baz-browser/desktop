@@ -20,6 +20,7 @@ jobs:
       CARGO_INCREMENTAL: 0
       ZEN_GA_DISABLE_PGO: "1"
       ZEN_DISABLE_LTO: "1"
+      SCCACHE_GHA_ENABLED: "true"
 
     steps:
       - name: Free Disk Space (Ubuntu)
@@ -42,6 +43,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@main
+        with:
+          disable_annotations: true
+
+      - name: Expose actions cache variables
+        uses: actions/github-script@v6
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env['ACTIONS_CACHE_URL'])
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env['ACTIONS_RUNTIME_TOKEN'])
 
       - name: Setup Git
         run: |
@@ -146,6 +159,13 @@ jobs:
             sed -i '/with-pgo-profile-path/d;/with-pgo-jarlog/d;/enable-profile-use/d;/^MOZ_PGO/d;/^export MOZ_PGO/d' "$MOZCONFIG_FILE"
           fi
 
+      - name: Enable sccache in mozconfig
+        run: |
+          MOZCONFIG_FILE="engine/mozconfig"
+          echo "" >> "$MOZCONFIG_FILE"
+          echo "ac_add_options --with-ccache=sccache" >> "$MOZCONFIG_FILE"
+          cat "$MOZCONFIG_FILE" | grep -i sccache
+
       - name: Build language packs
         run: sh scripts/download-language-packs.sh
 
@@ -171,6 +191,7 @@ jobs:
           mkdir -p build-logs
           bash .github/workflows/src/release-build.sh > build-logs/build.log 2>&1
           RC=$?
+          sccache --show-stats || true
           pkill -9 -f sccache || true
           if [ $RC -ne 0 ]; then
             tail -n 300 build-logs/build.log || true
