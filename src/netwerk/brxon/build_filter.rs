@@ -1,12 +1,27 @@
-// build_filter.rs — بناء الفلتر الحقيقي من قوائم متعددة
+// MIT License
 //
-// الاستخدام:
-//   cargo run --release --bin build_filter -- --nsfw oisd_nsfw.txt
-//   cargo run --release --bin build_filter -- --nsfw nsfw.txt --ads easylist.txt
+// Copyright (c) 2026 [BAZ باز] 
 //
-// يولّد:
-//   initial_filter.bin  ← يُضمَّن في libbrxon.a
-//   filter_stats.json   ← إحصاءات للتحقق
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+// build_filter.rs
+//
+
 
 use std::env;
 use std::fs::{self, File};
@@ -17,13 +32,13 @@ use sha2::{Sha256, Digest};
 use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
 
-// ─── إعدادات الفلتر ──────────────────────────────────────────────────────────
-// n=2,000,000 دومين  p=0.01%  →  m=4.57MB  k=13
+//  إعدادات الفلتر 
+
 const BLOOM_M_BYTES: usize = 4_792_530;
 const BLOOM_M_BITS:  usize = BLOOM_M_BYTES * 8;
 const BLOOM_K:       u32   = 13;
 
-// ─── Bloom Builder ────────────────────────────────────────────────────────────
+//  Bloom Builder 
 struct BloomBuilder {
     bits: Vec<u8>,
 }
@@ -64,9 +79,9 @@ fn hash_pair(input: &str) -> (u64, u64) {
     (h1, h2)
 }
 
-// ─── normalize ────────────────────────────────────────────────────────────────
+// normalize 
 
-/// للقوائم domain-only (oisd وما شابه)
+
 fn normalize_domain_only(raw: &str) -> String {
     let s = raw.trim();
     let s = if s.starts_with("https://") { &s[8..] }
@@ -83,38 +98,8 @@ fn normalize_domain_only(raw: &str) -> String {
     s.to_lowercase()
 }
 
-/// لقوائم EasyList — دومين + مسار كامل (بدون قص عند أول /)
-fn normalize_keep_path(raw: &str) -> String {
-    let s = raw.trim();
-    let s = s.strip_prefix("||").unwrap_or(s);
-    let s = s.strip_prefix('|').unwrap_or(s);
-    let s = s.strip_prefix("https://").unwrap_or(s);
-    let s = s.strip_prefix("http://").unwrap_or(s);
-    let s = if s.starts_with("www.") { &s[4..] } else { s };
-    let s = s.split(['^', '$', '|']).next().unwrap_or(s);
-    let s = s.trim_end_matches('.');
-    s.to_lowercase()
-}
-
-/// هل هذا السطر قاعدة حجب شبكي فعلية؟ (مو cosmetic، مو exception، مو شرطية)
-fn is_network_rule(line: &str) -> bool {
-    if line.starts_with('!') || line.starts_with('[') {
-        return false;
-    }
-    if line.contains("##") || line.contains("#@#") {
-        return false;
-    }
-    if line.starts_with("@@") {
-        return false;
-    }
-    if line.contains("domain=") {
-        return false;
-    }
-    true
-}
-
 // ─── قراءة ملف قائمة ─────────────────────────────────────────────────────────
-fn load_list(path: &str, builder: &mut BloomBuilder, label: &str, keep_path: bool) -> (usize, usize) {
+fn load_list(path: &str, builder: &mut BloomBuilder, label: &str) -> (usize, usize) {
     let file = match File::open(path) {
         Ok(f)  => f,
         Err(e) => { eprintln!("✗ فشل فتح {}: {}", path, e); return (0, 0); }
@@ -131,18 +116,8 @@ fn load_list(path: &str, builder: &mut BloomBuilder, label: &str, keep_path: boo
             continue;
         }
 
-        if keep_path && !is_network_rule(&line) {
-            skipped += 1;
-            continue;
-        }
-
         let line_ref: &str = if line.starts_with("*.") { &line[2..] } else { &line };
-
-        let entry = if keep_path {
-            normalize_keep_path(line_ref)
-        } else {
-            normalize_domain_only(line_ref)
-        };
+        let entry = normalize_domain_only(line_ref);
 
         if entry.is_empty() || !entry.contains('.') {
             if !entry.is_empty() && entry.len() >= 2 {
@@ -161,6 +136,9 @@ fn load_list(path: &str, builder: &mut BloomBuilder, label: &str, keep_path: boo
     println!("   ✓ {} → {} إدخال مضاف ({} سطر متجاهل)", label, added, skipped);
     (added, skipped)
 }
+
+
+
 
 // ─── suffix matching check ────────────────────────────────────────────────────
 fn is_blocked(builder: &BloomBuilder, domain: &str) -> bool {
@@ -192,16 +170,15 @@ fn sign_filter(bits: &[u8], version: u64, key: &SigningKey) -> (String, String) 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    // تحليل المعاملات
+    
     let mut lists: Vec<(String, String)> = Vec::new(); // (label, path)
     let mut output = "initial_filter.bin".to_string();
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "--nsfw"     => { i += 1; if i < args.len() { lists.push(("NSFW".into(),     args[i].clone())); } }
-            "--ads"      => { i += 1; if i < args.len() { lists.push(("Ads".into(),      args[i].clone())); } }
-            "--tracking" => { i += 1; if i < args.len() { lists.push(("Tracking".into(), args[i].clone())); } }
-            "--phishing" => { i += 1; if i < args.len() { lists.push(("Phishing".into(), args[i].clone())); } }
+           
+           
             "--list"     => { i += 1; if i < args.len() { lists.push(("Custom".into(),   args[i].clone())); } }
             "--output"   => { i += 1; if i < args.len() { output = args[i].clone(); } }
             _ => {}
@@ -210,28 +187,27 @@ fn main() {
     }
 
     if lists.is_empty() {
-        eprintln!("الاستخدام: build_filter --nsfw <ملف> [--ads <ملف>] [--output <مسار>]");
+        eprintln!("الاستخدام: build_filter --nsfw <ملف> [--list <ملف>] [--output <مسار>]");
         std::process::exit(1);
     }
 
     println!("══════════════════════════════════════════════");
-    println!("  Brxon — بناء الفلتر الحقيقي");
+    println!("   بناء الفلتر ");
     println!("══════════════════════════════════════════════");
     println!("  الفلتر: {:.2} MB  |  k={}  |  سعة: 2M دومين", BLOOM_M_BYTES as f64 / 1_048_576.0, BLOOM_K);
     println!();
 
     // ─── بناء الفلتر ──────────────────────────────────────────────────────────
-    println!("① تحميل القوائم...");
+    println!(" تحميل القوائم...");
     let mut builder = BloomBuilder::new();
     let t0 = Instant::now();
     let mut total_added = 0usize;
 
-    for (label, path) in &lists {
-        let keep_path = label == "Ads" || label == "Tracking";
-        let (added, _) = load_list(path, &mut builder, label, keep_path);
-        total_added += added;
-    }
-
+ for (label, path) in &lists {
+    let (added, _) = load_list(path, &mut builder, label);
+    total_added += added;
+}
+ 
     let build_time = t0.elapsed();
     let fill_ratio = builder.count_set_bits() as f64 / BLOOM_M_BITS as f64 * 100.0;
     println!("   المجموع: {} دومين في {:.2?}", total_added, build_time);

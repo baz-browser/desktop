@@ -8,8 +8,20 @@
 #include "nsIContentPolicy.h"
 #include "nsIObserver.h"
 #include "mozilla/net/brxon.h"
+#include "nsIStreamLoader.h"
+
 
 namespace mozilla::net {
+
+class AdsListFetchObserver final : public nsIStreamLoaderObserver {
+ public:
+  NS_DECL_ISUPPORTS
+  NS_DECL_NSISTREAMLOADEROBSERVER
+  AdsListFetchObserver() = default;
+
+ private:
+  ~AdsListFetchObserver() = default;
+};
 
 class ThreatBlocker final : public nsIContentPolicy
                           , public nsIObserver
@@ -23,13 +35,15 @@ public:
 
   void Init();
   void Shutdown();
-
-private:
+  void FetchAdsListTest();
+  
+  friend class AdsListFetchObserver;
+  private:
   ThreatBlocker() = default;
   ~ThreatBlocker();
 
   BrxonHandle mHandle = nullptr;
 };
 
-} // namespace mozilla::net
-#endif // ThreatBlocker_h
+} 
+#endif 

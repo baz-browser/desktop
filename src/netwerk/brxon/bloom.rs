@@ -1,13 +1,25 @@
-// bloom.rs — محرك Bloom Filter (جانب العميل — بحث فقط)
+// MIT License
 //
-// المعاملات المتزامنة مع build_filter:
-//   n = 2,000,000  دومين (مع هامش نمو للقوائم القادمة)
-//   p = 0.01%      معدل خطأ
-//   m = 4.57 MB    حجم البتات
-//   k = 13         دوال hash
+// Copyright (c) 2026 [BAZ باز] 
 //
-// الخوارزمية: Kirsch-Mitzenmacher
-//   hash_i(x) = h1(x) + i * h2(x)    i ∈ [0, k-1]
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
 
 use murmur3::murmur3_x64_128;
 use std::io::Cursor;
@@ -91,25 +103,9 @@ impl<'a> BloomFilter<'a> {
 // ─────────────────────────────────────────────────────────────────────────────
 //  normalize_domain
 // ─────────────────────────────────────────────────────────────────────────────
-//
-// ⚠️  إصلاح مهم: strip_prefix chaining كان ينتج "https" بدل الدومين
-//     السبب: .strip_prefix("https://").unwrap_or(s) يُعيد s الأصلي
-//             ثم .strip_prefix("http://") لا تجد تطابقاً فتُعيد s مع https://
-//             ثم .split('/').next() يُعيد "https" فقط!
-//     الحل: if/else صريح
 
-/// نسخة تحتفظ بالمسار الكامل — لقواعد EasyList (مسار محدد تحت دومين)
-pub fn normalize_full(raw: &str) -> String {
-    let s = raw.trim();
-    let s = if s.starts_with("https://") { &s[8..] }
-            else if s.starts_with("http://") { &s[7..] }
-            else { s };
-    let s = if s.starts_with("www.") { &s[4..] } else { s };
-    let s = s.split('?').next().unwrap_or(s);
-    let s = s.split('#').next().unwrap_or(s);
-    let s = s.trim_end_matches('/');
-    s.to_lowercase()
-}
+
+
 
 pub fn normalize_domain(raw: &str) -> String {
     // ① أزل البروتوكول

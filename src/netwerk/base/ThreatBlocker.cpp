@@ -1,7 +1,7 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
+//ياناس والله C++صعبه  انا ندمت اني تعلمت رست قبلها ماتوقعت احتاجها من مره
 #include "ThreatBlocker.h"
 #include "nsIURI.h"
 #include "nsILoadInfo.h"
@@ -19,13 +19,19 @@
 #include "nsDocShellLoadState.h"
 #include "nsDocShellLoadTypes.h"
 #include "mozilla/dom/BrowsingContext.h"
+#include "nsIStreamLoader.h"
+#include "nsIInputStream.h"
+#include "mozilla/dom/BrowsingContext.h"
+#include "nsIStreamLoader.h"
+#include "nsIInputStream.h"
+#include "mozilla/JSONWriter.h"
 
 namespace mozilla::net {
 
 static LazyLogModule sBrxonLog("Brxon");
 static StaticRefPtr<ThreatBlocker> sSingleton;
 
-// ── Singleton ────────────────────────────────────────────────────────────────
+
 
 already_AddRefed<ThreatBlocker> ThreatBlocker::GetSingleton() {
   if (!sSingleton) {
@@ -36,10 +42,10 @@ already_AddRefed<ThreatBlocker> ThreatBlocker::GetSingleton() {
   return do_AddRef(sSingleton);
 }
 
-// ── Init / Shutdown ───────────────────────────────────────────────────────────
+
 
 void ThreatBlocker::Init() {
-  // سيرفر فارغ في النسخة الأولى — الفلتر مضمّن في libbrxon.a
+ 
   mHandle = brxon_init("");
   if (mHandle) {
     brxon_start(mHandle);
@@ -48,11 +54,14 @@ void ThreatBlocker::Init() {
     MOZ_LOG(sBrxonLog, LogLevel::Error, ("Brxon: فشل التهيئة"));
   }
 
-  // استمع لحدث الإغلاق
+  
   nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
   if (obs) {
     obs->AddObserver(this, "xpcom-shutdown", false);
   }
+
+  //بحذفه بس اخلص اختبار
+  FetchAdsListTest();
 }
 
 void ThreatBlocker::Shutdown() {
@@ -67,7 +76,7 @@ ThreatBlocker::~ThreatBlocker() {
   Shutdown();
 }
 
-// ── nsIObserver ───────────────────────────────────────────────────────────────
+
 
 NS_IMETHODIMP
 ThreatBlocker::Observe(nsISupports* aSubject,
@@ -80,7 +89,7 @@ ThreatBlocker::Observe(nsISupports* aSubject,
   return NS_OK;
 }
 
-// ── nsIContentPolicy::ShouldLoad ─────────────────────────────────────────────
+
 
 NS_IMETHODIMP
 ThreatBlocker::ShouldLoad(nsIURI* aURI,
@@ -93,15 +102,15 @@ ThreatBlocker::ShouldLoad(nsIURI* aURI,
     return NS_OK;
   }
 
-  // استخرج URI
+  
   nsAutoCString uri;
   nsresult rv = aURI->GetSpec(uri);
   if (NS_FAILED(rv)) return NS_OK;
 
-  // نوع الطلب
+ 
   uint32_t contentType = static_cast<uint32_t>(aLoadInfo->InternalContentPolicyType());
 
-  // استشر Brxon
+  
   BrxonDecision result = brxon_should_load(mHandle, contentType, uri.get());
   *aDecision = result.decision;
 
@@ -109,10 +118,9 @@ ThreatBlocker::ShouldLoad(nsIURI* aURI,
     MOZ_LOG(sBrxonLog, LogLevel::Info,
             ("Brxon: حجب موقع → about:brxon-block [%s]", uri.get()));
 
-    // نأخذ الرجوع بالرفض حتى تنكسر القناة الأصلية فورًا
     *aDecision = nsIContentPolicy::REJECT_REQUEST;
 
-    // نبني رابط صفحة الحجب مع تمرير الرابط الأصلي كـ query parameter
+    
     nsAutoCString blockURI("about:brxon-block?url=");
     blockURI.Append(uri);
     nsCOMPtr<nsIURI> blockPageURI;
@@ -120,7 +128,7 @@ ThreatBlocker::ShouldLoad(nsIURI* aURI,
       return NS_OK;
     }
 
-    // نجيب BrowsingContext الخاص بهذا التحميل — بدونه ما نقدر نوجّه المتصفح
+    
     RefPtr<dom::BrowsingContext> bc = aLoadInfo->GetBrowsingContext();
     if (!bc || bc->IsDiscarded()) {
       MOZ_LOG(sBrxonLog, LogLevel::Warning,
@@ -128,10 +136,7 @@ ThreatBlocker::ShouldLoad(nsIURI* aURI,
       return NS_OK;
     }
 
-    // نوجّه فعليًا لصفحة الحجب — بشكل غير متزامن (Dispatch) عشان نتجنب
-    // إعادة الدخول (reentrancy) بينما إحنا لسا جوا معالجة ShouldLoad نفسها.
-    // هذا هو الفرق الجوهري عن SetResultPrincipalURI: هنا نطلب التنقّل
-    // بأنفسنا صراحة، بدل ما نعتمد على جيكو يفهمها تلقائيًا (ما يصير).
+    
     nsCOMPtr<nsIRunnable> navigateRunnable = NS_NewRunnableFunction(
         "ThreatBlocker::NavigateToBlockPage",
         [bc, blockPageURI]() {
@@ -159,6 +164,87 @@ ThreatBlocker::ShouldProcess(nsIURI*, nsILoadInfo*, int16_t* aDecision)
   return NS_OK;
 }
 
+
+
+NS_IMPL_ISUPPORTS(AdsListFetchObserver, nsIStreamLoaderObserver)
+
+NS_IMETHODIMP
+AdsListFetchObserver::OnStreamComplete(nsIStreamLoader* aLoader,
+                                        nsISupports* aContext,
+                                        nsresult aStatus,
+                                        uint32_t aLength,
+                                        const uint8_t* aData) {
+  static LazyLogModule sBrxonAdsLog("BrxonAds");
+
+  if (NS_FAILED(aStatus)) {
+    MOZ_LOG(sBrxonAdsLog, LogLevel::Warning,
+            ("BrxonAds: فشل الجلب — status=0x%08x",
+             static_cast<uint32_t>(aStatus)));
+    return NS_OK;
+  }
+
+  nsDependentCSubstring rawText(reinterpret_cast<const char*>(aData), aLength);
+
+  MOZ_LOG(sBrxonAdsLog, LogLevel::Info,
+          ("BrxonAds: نجح الجلب — استلمنا %u بايت", aLength));
+
+  
+  nsCString objOutput;
+  JSONStringRefWriteFunc writeFunc(objOutput);
+  JSONWriter writer(writeFunc);
+
+  writer.Start();
+  writer.StringProperty("label", "easylist");
+  writer.StringProperty("text", rawText);
+  writer.End();
+
+  nsAutoCString json("[");
+  json.Append(objOutput);
+  json.AppendLiteral("]");
+
+  RefPtr<ThreatBlocker> tb = ThreatBlocker::GetSingleton();
+  if (tb && tb->mHandle) {
+    bool ok = brxon_ads_ingest_lists_json(
+        tb->mHandle,
+        reinterpret_cast<const uint8_t*>(json.get()),
+        json.Length());
+    MOZ_LOG(sBrxonAdsLog, LogLevel::Info,
+            ("BrxonAds: brxon_ads_ingest_lists_json نتيجة=%s (حجم=%u بايت)",
+             ok ? "نجاح" : "فشل", static_cast<uint32_t>(json.Length())));
+  }
+
+  return NS_OK;
+}
+
+
+void ThreatBlocker::FetchAdsListTest() {
+  nsCOMPtr<nsIURI> testURI;
+  nsresult rv = NS_NewURI(getter_AddRefs(testURI),
+                           "https://easylist.to/easylist/easylist.txt"_ns);
+
+  if (NS_FAILED(rv)) {
+    return;
+  }
+
+  nsCOMPtr<nsIChannel> channel;
+  rv = NS_NewChannel(getter_AddRefs(channel), testURI,
+                      nsContentUtils::GetSystemPrincipal(),
+                      nsILoadInfo::SEC_ALLOW_CROSS_ORIGIN_SEC_CONTEXT_IS_NULL,
+                      nsIContentPolicy::TYPE_OTHER);
+  if (NS_FAILED(rv)) {
+    return;
+  }
+
+  nsCOMPtr<nsIStreamLoader> loader;
+  RefPtr<AdsListFetchObserver> observer = new AdsListFetchObserver();
+  rv = NS_NewStreamLoader(getter_AddRefs(loader), observer);
+  if (NS_FAILED(rv)) {
+    return;
+  }
+
+  channel->AsyncOpen(loader);
+}
+
 NS_IMPL_ISUPPORTS(ThreatBlocker, nsIContentPolicy, nsIObserver)
 
-} // namespace mozilla::net
+} 

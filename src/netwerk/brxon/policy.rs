@@ -1,28 +1,33 @@
-// policy.rs — محرك الحجب الأساسي
+// MIT License
 //
-// هذا هو قلب Brxon — يُنفَّذ قبل كل طلب شبكي في Gecko
-// عبر nsIContentPolicy::ShouldLoad()
+// Copyright (c) 2026 BAZ Browser متصفح باز
 //
-// ─── قاعدة الحجب الأساسية ────────────────────────────────────────────────────
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-//  نوع الطلب          | الدومين في الفلتر | القرار
-//  ─────────────────────────────────────────────────────────────────────────────
-//  TYPE_DOCUMENT       | إباحي             | REJECT → blockinfo.html
-//  TYPE_DOCUMENT       | إعلان/تتبع        | ACCEPT  (لا يظهر في الفلتر كذلك)
-//  TYPE_SUBDOCUMENT    | إباحي             | REJECT → blockinfo.html
-//  أي نوع آخر          | أي دومين ضار      | REJECT صامت (لا صفحة)
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
 //
-// ─── أنواع الطلبات (Gecko constants) ─────────────────────────────────────────
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 
-/// ثوابت nsIContentPolicy (مطابقة لـ nsIContentPolicy.idl في Gecko)
 pub mod content_type {
     pub const TYPE_OTHER:             u32 = 1;
     pub const TYPE_SCRIPT:            u32 = 2;
     pub const TYPE_IMAGE:             u32 = 3;
     pub const TYPE_STYLESHEET:        u32 = 4;
     pub const TYPE_OBJECT:            u32 = 5;
-    pub const TYPE_DOCUMENT:          u32 = 6;   // ← تنقل كامل للصفحة
-    pub const TYPE_SUBDOCUMENT:       u32 = 7;   // ← iframe
+    pub const TYPE_DOCUMENT:          u32 = 6;
+    pub const TYPE_SUBDOCUMENT:       u32 = 7;
     pub const TYPE_PING:              u32 = 10;
     pub const TYPE_XMLHTTPREQUEST:    u32 = 11;
     pub const TYPE_OBJECT_SUBREQUEST: u32 = 12;
@@ -37,42 +42,27 @@ pub mod content_type {
     pub const TYPE_WEB_TRANSPORT:     u32 = 31;
 }
 
-/// قرارات nsIContentPolicy
 pub mod policy_decision {
-    /// اقبل الطلب — ACCEPT
     pub const ACCEPT: i16 = 1;
-    /// ارفض الطلب — REJECT_REQUEST
     pub const REJECT_REQUEST: i16 = -1;
-    /// ارفض وأظهر صفحة بديلة — REJECT_TYPE (لـ TYPE_DOCUMENT)
     pub const REJECT_TYPE: i16 = -2;
 }
 
 use std::sync::Arc;
 use tracing::{trace, debug};
 
+use crate::ads_block::AdsBlockEngine;
+use crate::bloom::{BloomFilter, normalize_domain};
 use crate::state::BrxonState;
-use crate::bloom::{BloomFilter, normalize_domain, normalize_full};
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  نتيجة فحص الطلب
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// ما يجب أن تفعله Gecko بعد استشارة Brxon
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PolicyOutcome {
-    /// الطلب مقبول — أكمل التحميل
     Accept,
-
-    /// ارفض صامتاً — للإعلانات والتتبع والموارد الضارة
-    /// لا صفحة، لا رسالة، مجرد رفض صامت
     RejectSilent,
-
-    /// ارفض وأظهر blockinfo.html — للمواقع الإباحية (TYPE_DOCUMENT فقط)
     RejectWithBlockPage,
 }
 
 impl PolicyOutcome {
-    /// تحويل إلى رقم nsIContentPolicy القرار
     pub fn to_gecko_decision(&self) -> i16 {
         match self {
             PolicyOutcome::Accept              => policy_decision::ACCEPT,
@@ -82,74 +72,81 @@ impl PolicyOutcome {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  ContentPolicy — قلب Brxon
-// ─────────────────────────────────────────────────────────────────────────────
+fn content_type_to_ads_str(content_type: u32) -> &'static str {
+    use content_type::*;
+    match content_type {
+        TYPE_DOCUMENT          => "document",
+        TYPE_SUBDOCUMENT       => "subdocument",
+        TYPE_SCRIPT            => "script",
+        TYPE_IMAGE             => "image",
+        TYPE_IMAGESET          => "image",
+        TYPE_STYLESHEET        => "stylesheet",
+        TYPE_OBJECT            => "object",
+        TYPE_OBJECT_SUBREQUEST => "object",
+        TYPE_XMLHTTPREQUEST    => "xhr",
+        TYPE_FETCH             => "xhr",
+        TYPE_PING              => "ping",
+        TYPE_FONT              => "font",
+        TYPE_MEDIA             => "media",
+        TYPE_WEBSOCKET         => "websocket",
+        TYPE_CSP_REPORT        => "csp_report",
+        TYPE_WEB_MANIFEST      => "other",
+        TYPE_SPECULATIVE       => "other",
+        TYPE_WEB_TRANSPORT     => "other",
+        _                      => "other",
+    }
+}
 
 pub struct ContentPolicy {
-    state: Arc<BrxonState>,
+    state:      Arc<BrxonState>,
+    ads_engine: Arc<AdsBlockEngine>,
 }
 
 impl ContentPolicy {
-    pub fn new(state: Arc<BrxonState>) -> Self {
-        Self { state }
+    pub fn new(state: Arc<BrxonState>, ads_engine: Arc<AdsBlockEngine>) -> Self {
+        Self { state, ads_engine }
     }
 
-    // ── نقطة الدخول الرئيسية ─────────────────────────────────────────────────
+    pub fn should_load_with_source(
+        &self,
+        content_type: u32,
+        uri: &str,
+        source_uri: &str,
+    ) -> PolicyOutcome {
+        if self.state.is_ready() {
+            let domain = normalize_domain(uri);
+            if !domain.is_empty() {
+                let filter = self.state.filter.read();
+                let bloom  = BloomFilter::from_slice(&filter.current, filter.k);
 
-    /// ShouldLoad — يُستدعى من Gecko لكل طلب شبكي
-    ///
-    /// `content_type` : نوع الطلب (TYPE_DOCUMENT, TYPE_SCRIPT, ...)
-    /// `uri`          : الـ URI الكامل للطلب
-    ///
-    /// يُعيد `PolicyOutcome` الذي يُترجَم إلى قرار nsIContentPolicy
+                if bloom.contains_or_parent(&domain) {
+                    let outcome = self.determine_reject_type(content_type, &domain);
+                    debug!("Brxon[NSFW]: {} — {:?} (type={})", domain, outcome, content_type);
+                    return outcome;
+                }
+            }
+        }
+
+        if self.ads_engine.is_ready() {
+            let req_type = content_type_to_ads_str(content_type);
+            if self.ads_engine.should_block(uri, source_uri, req_type) {
+                trace!("Brxon[Ads]: REJECT صامت — {} (type={})", uri, req_type);
+                return PolicyOutcome::RejectSilent;
+            }
+        }
+
+        trace!("Brxon: ACCEPT — {}", uri);
+        PolicyOutcome::Accept
+    }
+
     pub fn should_load(&self, content_type: u32, uri: &str) -> PolicyOutcome {
-
-        // ── إذا الفلتر لم يُحمَّل بعد: اقبل كل شيء (لا تعطّل المتصفح) ───────
-        if !self.state.is_ready() {
-            trace!("Brxon: الفلتر لم يُحمَّل — ACCEPT ({})", uri);
-            return PolicyOutcome::Accept;
-        }
-
-        // ── استخرج الدومين من الـ URI ─────────────────────────────────────────
-        let domain = normalize_domain(uri);
-
-        if domain.is_empty() {
-            return PolicyOutcome::Accept;
-        }
-
-        // ── ابحث في Bloom Filter ──────────────────────────────────────────────
-        let filter  = self.state.filter.read();
-        let bloom   = BloomFilter::from_slice(&filter.current, filter.k);
-        let full    = normalize_full(uri);
-        let blocked = bloom.contains_or_parent(&domain) || bloom.contains(&full);
-
-        if !blocked {
-            trace!("Brxon: ACCEPT — {}", domain);
-            return PolicyOutcome::Accept;
-        }
-
-        // ── الدومين موجود في الفلتر — حدّد نوع الرفض ────────────────────────
-        let outcome = self.determine_reject_type(content_type, &domain);
-
-        debug!("Brxon: {} — {:?} (type={})", domain, outcome, content_type);
-        outcome
+        self.should_load_with_source(content_type, uri, "")
     }
 
-    // ── تحديد نوع الرفض ──────────────────────────────────────────────────────
-
-    /// القرار الحاسم:
-    ///
-    /// • TYPE_DOCUMENT أو TYPE_SUBDOCUMENT → صفحة حجب كاملة تظهر للمستخدم
-    ///   (هذا هو الحالة الوحيدة التي تظهر فيها blockinfo.html)
-    ///
-    /// • أي نوع آخر (سكريبت، صورة، fetch، websocket...) → رفض صامت
-    ///   لأن هذه موارد فرعية — الإعلانات والتتبع دائماً هنا
     fn determine_reject_type(&self, content_type: u32, domain: &str) -> PolicyOutcome {
         use content_type::*;
 
         match content_type {
-            // ─ تنقل كامل للصفحة أو iframe → صفحة الحجب ─────────────────────
             TYPE_DOCUMENT | TYPE_SUBDOCUMENT => {
                 debug!(
                     "Brxon: موقع محجوب (تنقل كامل) → blockinfo.html — {}",
@@ -157,12 +154,6 @@ impl ContentPolicy {
                 );
                 PolicyOutcome::RejectWithBlockPage
             }
-
-            // ─ أي مورد فرعي → رفض صامت تام ──────────────────────────────────
-            // هذا يشمل:
-            //   • إعلانات  (TYPE_IMAGE, TYPE_SCRIPT, TYPE_STYLESHEET)
-            //   • تتبع      (TYPE_XMLHTTPREQUEST, TYPE_FETCH, TYPE_PING)
-            //   • موارد أخرى (TYPE_FONT, TYPE_MEDIA, TYPE_WEBSOCKET)
             _ => {
                 trace!(
                     "Brxon: مورد محجوب صامتاً (type={}) — {}",
@@ -173,10 +164,6 @@ impl ContentPolicy {
         }
     }
 
-    // ── فحص بالاسم المباشر (للاختبار والـ API الداخلي) ─────────────────────
-
-    /// هل هذا الدومين في قائمة الحجب؟
-    /// يُستخدم داخلياً فقط — لا يحدد نوع الرفض
     pub fn is_domain_blocked(&self, domain: &str) -> bool {
         if !self.state.is_ready() { return false; }
         let normalized = normalize_domain(domain);
@@ -186,38 +173,16 @@ impl ContentPolicy {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  FFI — واجهة C للاستدعاء من Gecko (C++)
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// هذه الدوال تُصدَّر بـ `#[no_mangle]` لتُستدعى مباشرة من كود C++ في Gecko.
-// Gecko يمرر:
-//   - content_type : u32  ← من nsIContentPolicy
-//   - uri          : *const c_char ← URI الطلب
-// ويستقبل:
-//   - i16 ← قرار nsIContentPolicy
-
-use std::ffi::CStr;
-use std::os::raw::c_char;
-
-/// نتيجة الاستشارة — يُستخدم في FFI فقط لتجنب unsafe في أماكن أخرى
 #[repr(C)]
 pub struct BrxonDecision {
-    /// القرار: 1=ACCEPT, -1=REJECT_SILENT, -2=REJECT_WITH_BLOCKPAGE
     pub decision: i16,
-    /// هل يجب عرض blockinfo.html؟
     pub show_block_page: bool,
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  اختبارات
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// دالة مساعدة: هل هذا النوع يُفعّل صفحة الحجب؟
     fn is_navigation(content_type: u32) -> bool {
         matches!(content_type, content_type::TYPE_DOCUMENT | content_type::TYPE_SUBDOCUMENT)
     }
