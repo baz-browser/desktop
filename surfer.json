@@ -1,11 +1,11 @@
 {
-  "name": "Zen Browser",
-  "vendor": "Zen OSS Team",
-  "appId": "zen",
-  "binaryName": "zen",
+  "name": "متصفح باز",
+  "vendor": "Baz Team",
+  "appId": "baz",
+  "binaryName": "Baz",
   "version": {
     "product": "firefox",
-    "version": "153.0.4",
+    "version": "154.0",
     "candidate": "153.0.4",
     "candidateBuild": 1
   },
@@ -16,9 +16,9 @@
   "brands": {
     "release": {
       "backgroundColor": "#282A33",
-      "brandShorterName": "Zen",
-      "brandShortName": "Zen",
-      "brandFullName": "Zen Browser",
+      "brandShorterName": "Baz",
+      "brandShortName": "Baz",
+      "brandFullName": "Baz Browser",
       "release": {
         "displayVersion": "1.21.14b",
         "github": {

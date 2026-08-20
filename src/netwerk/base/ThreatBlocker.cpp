@@ -1,8 +1,10 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-//ياناس والله C++صعبه  انا ندمت اني تعلمت رست قبلها ماتوقعت احتاجها من مره
+//ياناس  C++صعبه  انا ندمت اني تعلمت رست قبلها ماتوقعت احتاجها من مره
+//
 #include "ThreatBlocker.h"
+#include "mozilla/JSONStringWriteFuncs.h"
 #include "nsIURI.h"
 #include "nsILoadInfo.h"
 #include "nsString.h"
@@ -18,9 +20,6 @@
 #include "nsContentUtils.h"
 #include "nsDocShellLoadState.h"
 #include "nsDocShellLoadTypes.h"
-#include "mozilla/dom/BrowsingContext.h"
-#include "nsIStreamLoader.h"
-#include "nsIInputStream.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "nsIStreamLoader.h"
 #include "nsIInputStream.h"
@@ -165,6 +164,17 @@ ThreatBlocker::ShouldProcess(nsIURI*, nsILoadInfo*, int16_t* aDecision)
 }
 
 
+class NsCStringJSONWriteFunc final : public JSONWriteFunc {
+ public:
+  explicit NsCStringJSONWriteFunc(nsACString& aBuffer) : mBuffer(aBuffer) {}
+
+  void Write(const Span<const char>& aStr) override {
+    mBuffer.Append(aStr.Elements(), aStr.Length());
+  }
+
+ private:
+  nsACString& mBuffer;
+};
 
 NS_IMPL_ISUPPORTS(AdsListFetchObserver, nsIStreamLoaderObserver)
 
@@ -190,7 +200,7 @@ AdsListFetchObserver::OnStreamComplete(nsIStreamLoader* aLoader,
 
   
   nsCString objOutput;
-  JSONStringRefWriteFunc writeFunc(objOutput);
+  NsCStringJSONWriteFunc writeFunc(objOutput);
   JSONWriter writer(writeFunc);
 
   writer.Start();
