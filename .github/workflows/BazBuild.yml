@@ -217,7 +217,7 @@ jobs:
 
       - name: Rename artifact
         run: |
-          mv dist/zen-*.tar.xz "baz.linux-x86_64.tar.xz" || mv dist/baz-*.tar.xz "baz.linux-x86_64.tar.xz"
+         mv dist/[Zz]en-*.tar.xz "baz.linux-x86_64.tar.xz" || mv dist/[Bb]az-*.tar.xz "baz.linux-x86_64.tar.xz"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
