@@ -9,18 +9,42 @@
 #include "nsIObserver.h"
 #include "mozilla/net/brxon.h"
 #include "nsIStreamLoader.h"
-
+#include "nsTArray.h"
+#include "nsString.h"
 
 namespace mozilla::net {
+
+class AdsListCoordinator final {
+ public:
+  NS_INLINE_DECL_REFCOUNTING(AdsListCoordinator)
+
+  explicit AdsListCoordinator(uint32_t aExpectedCount)
+      : mPending(aExpectedCount) {}
+
+  void OnListFetched(const nsACString& aJsonObjectOrEmpty);
+
+ private:
+  ~AdsListCoordinator() = default;
+  void Finish();
+
+  uint32_t mPending;
+  nsTArray<nsCString> mResults;
+};
 
 class AdsListFetchObserver final : public nsIStreamLoaderObserver {
  public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSISTREAMLOADEROBSERVER
-  AdsListFetchObserver() = default;
+
+  AdsListFetchObserver(const nsACString& aLabel,
+                        AdsListCoordinator* aCoordinator)
+      : mLabel(aLabel), mCoordinator(aCoordinator) {}
 
  private:
   ~AdsListFetchObserver() = default;
+
+  nsCString mLabel;
+  RefPtr<AdsListCoordinator> mCoordinator;
 };
 
 class ThreatBlocker final : public nsIContentPolicy
@@ -35,10 +59,12 @@ public:
 
   void Init();
   void Shutdown();
-  void FetchAdsListTest();
-  
+  void FetchAllAdsLists();
+
   friend class AdsListFetchObserver;
-  private:
+  friend class AdsListCoordinator;
+
+private:
   ThreatBlocker() = default;
   ~ThreatBlocker();
 
