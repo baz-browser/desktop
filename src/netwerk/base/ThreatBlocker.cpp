@@ -1,8 +1,7 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-//ياناس  C++صعبه  انا ندمت اني تعلمت رست قبلها ماتوقعت احتاجها من مره
-//
+//سي++صعبه كثير ماتوقعت اني رح احتاجها فكرت رست بتكفي
 #include "ThreatBlocker.h"
 #include "mozilla/JSONStringWriteFuncs.h"
 #include "nsIURI.h"
@@ -28,9 +27,49 @@
 namespace mozilla::net {
 
 static LazyLogModule sBrxonLog("Brxon");
+static LazyLogModule sBrxonAdsLog("BrxonAds");
 static StaticRefPtr<ThreatBlocker> sSingleton;
 
+static const uint32_t kMaxAdsListBytes = 20 * 1024 * 1024; // 20MB
 
+struct AdsListSpec {
+  const char* label;
+  const char* url;
+};
+
+static const AdsListSpec kAdsLists[] = {
+    {"easylist", "https://easylist.to/easylist/easylist.txt"},
+    {"easyprivacy", "https://easylist.to/easylist/easyprivacy.txt"},
+    {"peter_lowe",
+     "https://pgl.yoyo.org/adservers/serverlist.php?"
+     "hostformat=adblockplus&mimetype=plaintext"},
+    {"ubo_filters",
+     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/"
+     "filters/filters.min.txt"},
+    {"ubo_badware",
+     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/"
+     "filters/badware.min.txt"},
+    {"ubo_privacy",
+     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/"
+     "filters/privacy.min.txt"},
+    {"ubo_unbreak",
+     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/"
+     "filters/unbreak.min.txt"},
+};
+
+static const uint32_t kAdsListCount =
+    sizeof(kAdsLists) / sizeof(kAdsLists[0]);
+
+class NsCStringJSONWriteFunc final : public JSONWriteFunc {
+ public:
+  explicit NsCStringJSONWriteFunc(nsACString& aBuffer) : mBuffer(aBuffer) {}
+  void Write(const Span<const char>& aStr) override {
+    mBuffer.Append(aStr.Elements(), aStr.Length());
+  }
+
+ private:
+  nsACString& mBuffer;
+};
 
 already_AddRefed<ThreatBlocker> ThreatBlocker::GetSingleton() {
   if (!sSingleton) {
@@ -41,10 +80,7 @@ already_AddRefed<ThreatBlocker> ThreatBlocker::GetSingleton() {
   return do_AddRef(sSingleton);
 }
 
-
-
 void ThreatBlocker::Init() {
- 
   mHandle = brxon_init("");
   if (mHandle) {
     brxon_start(mHandle);
@@ -53,14 +89,12 @@ void ThreatBlocker::Init() {
     MOZ_LOG(sBrxonLog, LogLevel::Error, ("Brxon: فشل التهيئة"));
   }
 
-  
   nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
   if (obs) {
     obs->AddObserver(this, "xpcom-shutdown", false);
   }
 
-  //بحذفه بس اخلص اختبار
-  FetchAdsListTest();
+  FetchAllAdsLists();
 }
 
 void ThreatBlocker::Shutdown() {
@@ -71,45 +105,33 @@ void ThreatBlocker::Shutdown() {
   }
 }
 
-ThreatBlocker::~ThreatBlocker() {
-  Shutdown();
-}
-
-
+ThreatBlocker::~ThreatBlocker() { Shutdown(); }
 
 NS_IMETHODIMP
-ThreatBlocker::Observe(nsISupports* aSubject,
-                       const char*  aTopic,
-                       const char16_t* aData)
-{
+ThreatBlocker::Observe(nsISupports* aSubject, const char* aTopic,
+                        const char16_t* aData) {
   if (strcmp(aTopic, "xpcom-shutdown") == 0) {
     Shutdown();
   }
   return NS_OK;
 }
 
-
-
 NS_IMETHODIMP
-ThreatBlocker::ShouldLoad(nsIURI* aURI,
-                           nsILoadInfo* aLoadInfo,
-                           int16_t* aDecision)
-{
+ThreatBlocker::ShouldLoad(nsIURI* aURI, nsILoadInfo* aLoadInfo,
+                           int16_t* aDecision) {
   *aDecision = nsIContentPolicy::ACCEPT;
 
-  if (!mHandle || !brxon_is_ready(mHandle)) {
+  if (!mHandle) {
     return NS_OK;
   }
 
-  
   nsAutoCString uri;
   nsresult rv = aURI->GetSpec(uri);
   if (NS_FAILED(rv)) return NS_OK;
 
- 
-  uint32_t contentType = static_cast<uint32_t>(aLoadInfo->InternalContentPolicyType());
+  uint32_t contentType =
+      static_cast<uint32_t>(aLoadInfo->InternalContentPolicyType());
 
-  
   BrxonDecision result = brxon_should_load(mHandle, contentType, uri.get());
   *aDecision = result.decision;
 
@@ -119,7 +141,6 @@ ThreatBlocker::ShouldLoad(nsIURI* aURI,
 
     *aDecision = nsIContentPolicy::REJECT_REQUEST;
 
-    
     nsAutoCString blockURI("about:brxon-block?url=");
     blockURI.Append(uri);
     nsCOMPtr<nsIURI> blockPageURI;
@@ -127,7 +148,6 @@ ThreatBlocker::ShouldLoad(nsIURI* aURI,
       return NS_OK;
     }
 
-    
     RefPtr<dom::BrowsingContext> bc = aLoadInfo->GetBrowsingContext();
     if (!bc || bc->IsDiscarded()) {
       MOZ_LOG(sBrxonLog, LogLevel::Warning,
@@ -135,10 +155,8 @@ ThreatBlocker::ShouldLoad(nsIURI* aURI,
       return NS_OK;
     }
 
-    
     nsCOMPtr<nsIRunnable> navigateRunnable = NS_NewRunnableFunction(
-        "ThreatBlocker::NavigateToBlockPage",
-        [bc, blockPageURI]() {
+        "ThreatBlocker::NavigateToBlockPage", [bc, blockPageURI]() {
           if (!bc || bc->IsDiscarded()) {
             return;
           }
@@ -157,104 +175,147 @@ ThreatBlocker::ShouldLoad(nsIURI* aURI,
 }
 
 NS_IMETHODIMP
-ThreatBlocker::ShouldProcess(nsIURI*, nsILoadInfo*, int16_t* aDecision)
-{
+ThreatBlocker::ShouldProcess(nsIURI*, nsILoadInfo*, int16_t* aDecision) {
   *aDecision = nsIContentPolicy::ACCEPT;
   return NS_OK;
 }
 
+// ── AdsListCoordinator ─────────────────────────────────────────────────────
 
-class NsCStringJSONWriteFunc final : public JSONWriteFunc {
- public:
-  explicit NsCStringJSONWriteFunc(nsACString& aBuffer) : mBuffer(aBuffer) {}
-
-  void Write(const Span<const char>& aStr) override {
-    mBuffer.Append(aStr.Elements(), aStr.Length());
+void AdsListCoordinator::OnListFetched(const nsACString& aJsonObjectOrEmpty) {
+  if (!aJsonObjectOrEmpty.IsEmpty()) {
+    mResults.AppendElement(aJsonObjectOrEmpty);
   }
 
- private:
-  nsACString& mBuffer;
-};
+  MOZ_ASSERT(mPending > 0);
+  mPending--;
+
+  if (mPending == 0) {
+    Finish();
+  }
+}
+
+void AdsListCoordinator::Finish() {
+  MOZ_LOG(sBrxonAdsLog, LogLevel::Info,
+          ("BrxonAds: اكتمل جلب كل القوائم — %u/%u نجحت",
+           static_cast<uint32_t>(mResults.Length()), kAdsListCount));
+
+  if (mResults.IsEmpty()) {
+    MOZ_LOG(sBrxonAdsLog, LogLevel::Warning,
+            ("BrxonAds: لا توجد قوائم صالحة — تجاهل التحديث"));
+    return;
+  }
+
+  nsAutoCString json("[");
+  for (uint32_t i = 0; i < mResults.Length(); ++i) {
+    if (i > 0) json.AppendLiteral(",");
+    json.Append(mResults[i]);
+  }
+  json.AppendLiteral("]");
+
+  RefPtr<ThreatBlocker> tb = ThreatBlocker::GetSingleton();
+  if (tb && tb->mHandle) {
+    bool ok = brxon_ads_ingest_lists_json(
+        tb->mHandle, reinterpret_cast<const uint8_t*>(json.get()),
+        json.Length());
+    MOZ_LOG(sBrxonAdsLog, LogLevel::Info,
+            ("BrxonAds: brxon_ads_ingest_lists_json نتيجة=%s (حجم=%u بايت)",
+             ok ? "نجاح" : "فشل", static_cast<uint32_t>(json.Length())));
+  }
+}
+
+// ── AdsListFetchObserver ────────────────────────────────────────────────────
 
 NS_IMPL_ISUPPORTS(AdsListFetchObserver, nsIStreamLoaderObserver)
 
 NS_IMETHODIMP
 AdsListFetchObserver::OnStreamComplete(nsIStreamLoader* aLoader,
                                         nsISupports* aContext,
-                                        nsresult aStatus,
-                                        uint32_t aLength,
+                                        nsresult aStatus, uint32_t aLength,
                                         const uint8_t* aData) {
-  static LazyLogModule sBrxonAdsLog("BrxonAds");
-
   if (NS_FAILED(aStatus)) {
     MOZ_LOG(sBrxonAdsLog, LogLevel::Warning,
-            ("BrxonAds: فشل الجلب — status=0x%08x",
+            ("BrxonAds: فشل جلب '%s' — status=0x%08x", mLabel.get(),
              static_cast<uint32_t>(aStatus)));
+    mCoordinator->OnListFetched(""_ns);
     return NS_OK;
   }
 
-  nsDependentCSubstring rawText(reinterpret_cast<const char*>(aData), aLength);
+  if (aLength == 0 || aLength > kMaxAdsListBytes) {
+    MOZ_LOG(sBrxonAdsLog, LogLevel::Warning,
+            ("BrxonAds: تجاهل '%s' — حجم غير صالح (%u بايت)", mLabel.get(),
+             aLength));
+    mCoordinator->OnListFetched(""_ns);
+    return NS_OK;
+  }
+
+  nsDependentCSubstring rawText(reinterpret_cast<const char*>(aData),
+                                 aLength);
+
+  nsAutoCString trimmed(rawText);
+  trimmed.Trim(" \t\r\n");
+  if (trimmed.Length() >= 1 && trimmed.CharAt(0) == '<') {
+    MOZ_LOG(sBrxonAdsLog, LogLevel::Warning,
+            ("BrxonAds: تجاهل '%s' — يبدو محتوى HTML وليس قائمة فلاتر",
+             mLabel.get()));
+    mCoordinator->OnListFetched(""_ns);
+    return NS_OK;
+  }
 
   MOZ_LOG(sBrxonAdsLog, LogLevel::Info,
-          ("BrxonAds: نجح الجلب — استلمنا %u بايت", aLength));
+          ("BrxonAds: نجح جلب '%s' — %u بايت", mLabel.get(), aLength));
 
-  
   nsCString objOutput;
   NsCStringJSONWriteFunc writeFunc(objOutput);
   JSONWriter writer(writeFunc);
 
   writer.Start();
-  writer.StringProperty("label", "easylist");
+  writer.StringProperty("label", mLabel);
   writer.StringProperty("text", rawText);
   writer.End();
 
-  nsAutoCString json("[");
-  json.Append(objOutput);
-  json.AppendLiteral("]");
-
-  RefPtr<ThreatBlocker> tb = ThreatBlocker::GetSingleton();
-  if (tb && tb->mHandle) {
-    bool ok = brxon_ads_ingest_lists_json(
-        tb->mHandle,
-        reinterpret_cast<const uint8_t*>(json.get()),
-        json.Length());
-    MOZ_LOG(sBrxonAdsLog, LogLevel::Info,
-            ("BrxonAds: brxon_ads_ingest_lists_json نتيجة=%s (حجم=%u بايت)",
-             ok ? "نجاح" : "فشل", static_cast<uint32_t>(json.Length())));
-  }
-
+  mCoordinator->OnListFetched(objOutput);
   return NS_OK;
 }
 
+// ── ThreatBlocker::FetchAllAdsLists ─────────────────────────────────────────
 
-void ThreatBlocker::FetchAdsListTest() {
-  nsCOMPtr<nsIURI> testURI;
-  nsresult rv = NS_NewURI(getter_AddRefs(testURI),
-                           "https://easylist.to/easylist/easylist.txt"_ns);
+void ThreatBlocker::FetchAllAdsLists() {
+  RefPtr<AdsListCoordinator> coordinator =
+      new AdsListCoordinator(kAdsListCount);
 
-  if (NS_FAILED(rv)) {
-    return;
+  for (uint32_t i = 0; i < kAdsListCount; ++i) {
+    nsCOMPtr<nsIURI> uri;
+    nsresult rv =
+        NS_NewURI(getter_AddRefs(uri), nsDependentCString(kAdsLists[i].url));
+    if (NS_FAILED(rv)) {
+      coordinator->OnListFetched(""_ns);
+      continue;
+    }
+
+    nsCOMPtr<nsIChannel> channel;
+    rv = NS_NewChannel(getter_AddRefs(channel), uri,
+                        nsContentUtils::GetSystemPrincipal(),
+                        nsILoadInfo::SEC_ALLOW_CROSS_ORIGIN_SEC_CONTEXT_IS_NULL,
+                        nsIContentPolicy::TYPE_OTHER);
+    if (NS_FAILED(rv)) {
+      coordinator->OnListFetched(""_ns);
+      continue;
+    }
+
+    nsCOMPtr<nsIStreamLoader> loader;
+    RefPtr<AdsListFetchObserver> observer = new AdsListFetchObserver(
+        nsDependentCString(kAdsLists[i].label), coordinator);
+    rv = NS_NewStreamLoader(getter_AddRefs(loader), observer);
+    if (NS_FAILED(rv)) {
+      coordinator->OnListFetched(""_ns);
+      continue;
+    }
+
+    channel->AsyncOpen(loader);
   }
-
-  nsCOMPtr<nsIChannel> channel;
-  rv = NS_NewChannel(getter_AddRefs(channel), testURI,
-                      nsContentUtils::GetSystemPrincipal(),
-                      nsILoadInfo::SEC_ALLOW_CROSS_ORIGIN_SEC_CONTEXT_IS_NULL,
-                      nsIContentPolicy::TYPE_OTHER);
-  if (NS_FAILED(rv)) {
-    return;
-  }
-
-  nsCOMPtr<nsIStreamLoader> loader;
-  RefPtr<AdsListFetchObserver> observer = new AdsListFetchObserver();
-  rv = NS_NewStreamLoader(getter_AddRefs(loader), observer);
-  if (NS_FAILED(rv)) {
-    return;
-  }
-
-  channel->AsyncOpen(loader);
 }
 
 NS_IMPL_ISUPPORTS(ThreatBlocker, nsIContentPolicy, nsIObserver)
 
-} 
+} // namespace mozilla::net
