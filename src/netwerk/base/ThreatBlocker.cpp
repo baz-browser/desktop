@@ -45,16 +45,16 @@ static const AdsListSpec kAdsLists[] = {
      "hostformat=adblockplus&mimetype=plaintext"},
     {"ubo_filters",
      "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/"
-     "filters/filters.min.txt"},
+     "filters/filters.txt"},
     {"ubo_badware",
      "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/"
-     "filters/badware.min.txt"},
+     "filters/badware.txt"},
     {"ubo_privacy",
      "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/"
-     "filters/privacy.min.txt"},
+     "filters/privacy.txt"},
     {"ubo_unbreak",
      "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/"
-     "filters/unbreak.min.txt"},
+     "filters/unbreak.txt"},
 };
 
 static const uint32_t kAdsListCount =
