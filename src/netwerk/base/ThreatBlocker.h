@@ -4,7 +4,7 @@
 
 #ifndef ThreatBlocker_h
 #define ThreatBlocker_h
-
+#include "nsITimer.h"
 #include "nsIContentPolicy.h"
 #include "nsIObserver.h"
 #include "mozilla/net/brxon.h"
@@ -60,6 +60,8 @@ public:
   void Init();
   void Shutdown();
   void FetchAllAdsLists();
+  void StartAdsUpdateTimer();
+  static void AdsUpdateTimerCallback(nsITimer* aTimer, void* aClosure);
 
   friend class AdsListFetchObserver;
   friend class AdsListCoordinator;
@@ -67,7 +69,7 @@ public:
 private:
   ThreatBlocker() = default;
   ~ThreatBlocker();
-
+  nsCOMPtr<nsITimer> mAdsUpdateTimer;
   BrxonHandle mHandle = nullptr;
 };
 
