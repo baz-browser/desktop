@@ -29,8 +29,8 @@ namespace mozilla::net {
 static LazyLogModule sBrxonLog("Brxon");
 static LazyLogModule sBrxonAdsLog("BrxonAds");
 static StaticRefPtr<ThreatBlocker> sSingleton;
-
-static const uint32_t kMaxAdsListBytes = 20 * 1024 * 1024; // 20MB
+static const uint32_t kAdsUpdateIntervalMs = 60 * 60 * 1000; //هذه الميزة ليست مثل ادوات الحجب المشهوره بل كتجربه للنسخه التجريبيه وحدة تاريخ التحديث لكل القوائم لكن بتقدر تعمل مثل UBOبعمل تاريخ صلاحيه لكل قائمه 
+static const uint32_t kMaxAdsListBytes = 20 * 1024 * 1024; 
 
 struct AdsListSpec {
   const char* label;
@@ -241,7 +241,8 @@ AdsListFetchObserver::OnStreamComplete(nsIStreamLoader* aLoader,
     return NS_OK;
   }
 
-  if (aLength == 0 || aLength > kMaxAdsListBytes) {
+  static const uint32_t kMinAdsListBytes = 1000;
+  if (aLength < kMinAdsListBytes || aLength > kMaxAdsListBytes) {
     MOZ_LOG(sBrxonAdsLog, LogLevel::Warning,
             ("BrxonAds: تجاهل '%s' — حجم غير صالح (%u بايت)", mLabel.get(),
              aLength));
@@ -251,12 +252,13 @@ AdsListFetchObserver::OnStreamComplete(nsIStreamLoader* aLoader,
 
   nsDependentCSubstring rawText(reinterpret_cast<const char*>(aData),
                                  aLength);
+  
 
   nsAutoCString trimmed(rawText);
   trimmed.Trim(" \t\r\n");
   if (trimmed.Length() >= 1 && trimmed.CharAt(0) == '<') {
     MOZ_LOG(sBrxonAdsLog, LogLevel::Warning,
-            ("BrxonAds: تجاهل '%s' — يبدو محتوى HTML وليس قائمة فلاتر",
+            ("BrxonAds: تجاهل '%s' — يبدو محتوى وليس قائمة فلاتر",
              mLabel.get()));
     mCoordinator->OnListFetched(""_ns);
     return NS_OK;
