@@ -152,8 +152,17 @@ void ThreatBlocker::InjectCosmeticCss(nsISupports* aSubject) {
   brxon_free_css_buffer(cssBytes, cssLen);
 
   nsAutoCString encoded;
-  nsresult rv = NS_Escape(cssText, encoded, url_XAlphas);
-  if (NS_FAILED(rv)) return;
+  for (size_t i = 0; i < cssText.Length(); ++i) {
+    unsigned char c = static_cast<unsigned char>(cssText[i]);
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+        (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~') {
+      encoded.Append(static_cast<char>(c));
+    } else {
+      char buf[4];
+      snprintf(buf, sizeof(buf), "%%%02X", c);
+      encoded.Append(buf);
+    }
+  }
 
   nsAutoCString dataUri("data:text/css;charset=utf-8,");
   dataUri.Append(encoded);
@@ -168,9 +177,9 @@ void ThreatBlocker::InjectCosmeticCss(nsISupports* aSubject) {
 
   nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(win);
   if (utils) {
-    utils->LoadSheetUsingURIString(dataUri.get(),
-                                    nsIDOMWindowUtils::AGENT_SHEET);
+    utils->LoadSheetUsingURIString(dataUri, nsIDOMWindowUtils::AGENT_SHEET);
   }
+
 }
 
 NS_IMETHODIMP
@@ -207,13 +216,10 @@ ThreatBlocker::ShouldLoad(nsIURI* aURI, nsILoadInfo* aLoadInfo,
   if (sourceSpec.IsEmpty()) {
     nsCOMPtr<nsIPrincipal> triggering = aLoadInfo->TriggeringPrincipal();
     if (triggering && !triggering->IsSystemPrincipal()) {
-      nsCOMPtr<nsIURI> triggeringURI;
-      triggering->GetURI(getter_AddRefs(triggeringURI));
-      if (triggeringURI) {
-        triggeringURI->GetSpec(sourceSpec);
-      }
+      triggering->GetAsciiSpec(sourceSpec);
     }
   }
+
 
   BrxonDecision result = brxon_should_load(
       mHandle, contentType, uri.get(),
