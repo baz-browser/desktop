@@ -20,6 +20,7 @@
 #include "nsDocShellLoadState.h"
 #include "nsDocShellLoadTypes.h"
 #include "mozilla/dom/BrowsingContext.h"
+#include "mozilla/dom/WindowGlobalParent.h"
 #include "nsIStreamLoader.h"
 #include "nsIInputStream.h"
 #include "mozilla/JSONWriter.h"
@@ -92,8 +93,9 @@ void ThreatBlocker::Init() {
   nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
   if (obs) {
     obs->AddObserver(this, "xpcom-shutdown", false);
+    obs->AddObserver(this, "document-element-inserted", false);
   }
-
+  
   FetchAllAdsLists();
 }
 
@@ -112,8 +114,63 @@ ThreatBlocker::Observe(nsISupports* aSubject, const char* aTopic,
                         const char16_t* aData) {
   if (strcmp(aTopic, "xpcom-shutdown") == 0) {
     Shutdown();
+    return NS_OK;
   }
+
+  if (strcmp(aTopic, "document-element-inserted") == 0) {
+    InjectCosmeticCss(aSubject);
+    return NS_OK;
+  }
+
   return NS_OK;
+}
+
+void ThreatBlocker::InjectCosmeticCss(nsISupports* aSubject) {
+  if (!mHandle) return;
+
+  nsCOMPtr<dom::Document> doc = do_QueryInterface(aSubject);
+  if (!doc) return;
+
+  nsIURI* docURI = doc->GetDocumentURI();
+  if (!docURI) return;
+
+  bool isHttp = false, isHttps = false;
+  docURI->SchemeIs("http", &isHttp);
+  docURI->SchemeIs("https", &isHttps);
+  if (!isHttp && !isHttps) return;
+
+  nsAutoCString spec;
+  docURI->GetSpec(spec);
+
+  size_t cssLen = 0;
+  uint8_t* cssBytes = brxon_ads_cosmetic_css(mHandle, spec.get(), &cssLen);
+  if (!cssBytes || cssLen == 0) {
+    return;
+  }
+
+  nsAutoCString cssText(reinterpret_cast<const char*>(cssBytes), cssLen);
+  brxon_free_css_buffer(cssBytes, cssLen);
+
+  nsAutoCString encoded;
+  nsresult rv = NS_Escape(cssText, encoded, url_XAlphas);
+  if (NS_FAILED(rv)) return;
+
+  nsAutoCString dataUri("data:text/css;charset=utf-8,");
+  dataUri.Append(encoded);
+
+  nsCOMPtr<nsIURI> sheetURI;
+  if (NS_FAILED(NS_NewURI(getter_AddRefs(sheetURI), dataUri))) {
+    return;
+  }
+
+  nsPIDOMWindowOuter* win = doc->GetWindow();
+  if (!win) return;
+
+  nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(win);
+  if (utils) {
+    utils->LoadSheetUsingURIString(dataUri.get(),
+                                    nsIDOMWindowUtils::AGENT_SHEET);
+  }
 }
 
 NS_IMETHODIMP
@@ -132,8 +189,37 @@ ThreatBlocker::ShouldLoad(nsIURI* aURI, nsILoadInfo* aLoadInfo,
   uint32_t contentType =
       static_cast<uint32_t>(aLoadInfo->InternalContentPolicyType());
 
-  BrxonDecision result = brxon_should_load(mHandle, contentType, uri.get());
-  *aDecision = result.decision;
+  
+  nsAutoCString sourceSpec;  
+  RefPtr<dom::BrowsingContext> bc = aLoadInfo->GetBrowsingContext();
+  if (bc) {
+    RefPtr<dom::BrowsingContext> top = bc->Top();
+    if (top && !top->IsDiscarded()) {
+      if (dom::WindowGlobalParent* wgp = top->Canonical()->GetCurrentWindowGlobal()) {
+        nsIURI* docURI = wgp->GetDocumentURI();
+        if (docURI) {
+          docURI->GetSpec(sourceSpec);
+        }
+      }
+    }
+  }
+
+  if (sourceSpec.IsEmpty()) {
+    nsCOMPtr<nsIPrincipal> triggering = aLoadInfo->TriggeringPrincipal();
+    if (triggering && !triggering->IsSystemPrincipal()) {
+      nsCOMPtr<nsIURI> triggeringURI;
+      triggering->GetURI(getter_AddRefs(triggeringURI));
+      if (triggeringURI) {
+        triggeringURI->GetSpec(sourceSpec);
+      }
+    }
+  }
+
+  BrxonDecision result = brxon_should_load(
+      mHandle, contentType, uri.get(),
+      sourceSpec.IsEmpty() ? nullptr : sourceSpec.get());
+ 
+ *aDecision = result.decision;
 
   if (result.show_block_page) {
     MOZ_LOG(sBrxonLog, LogLevel::Info,
@@ -148,7 +234,7 @@ ThreatBlocker::ShouldLoad(nsIURI* aURI, nsILoadInfo* aLoadInfo,
       return NS_OK;
     }
 
-    RefPtr<dom::BrowsingContext> bc = aLoadInfo->GetBrowsingContext();
+    
     if (!bc || bc->IsDiscarded()) {
       MOZ_LOG(sBrxonLog, LogLevel::Warning,
               ("Brxon: ما فيه BrowsingContext صالح — تعذّر التوجيه"));

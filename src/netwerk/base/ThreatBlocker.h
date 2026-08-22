@@ -60,6 +60,7 @@ public:
   void Init();
   void Shutdown();
   void FetchAllAdsLists();
+  void InjectCosmeticCss(nsISupports* aSubject);
   void StartAdsUpdateTimer();
   static void AdsUpdateTimerCallback(nsITimer* aTimer, void* aClosure);
 

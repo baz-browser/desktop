@@ -9,8 +9,8 @@ pub const PERIODIC_CHECK_INTERVAL_SECS: u64 = 6 * 60 * 60;
 pub const LIST_EXPIRY_SECS: u64 = 24 * 60 * 60;
 pub const EMERGENCY_THRESHOLD_SECS: u64 = 48 * 60 * 60;
 
-/// method افتراضي مؤقت — بانتظار تمرير HTTP method الحقيقي عبر FFI/C++
-/// بمرحلة لاحقة (راجع نقاش تعديل ThreatBlocker.cpp).
+
+
 const DEFAULT_REQUEST_METHOD: &str = "GET";
 
 pub mod list_names {
@@ -124,11 +124,35 @@ impl AdsBlockEngine {
         let result = engine.check_network_request(&request);
         result.should_block()
     }
-
     pub fn serialize_for_cache(&self) -> Option<Vec<u8>> {
         self.engine.read().as_ref().map(|e| e.serialize())
     }
 
+   
+   
+    /// procedural_actions  غير مدعومة بهذه المرحلة.
+    pub fn cosmetic_css_for_url(&self, url: &str) -> Option<String> {
+        let engine_guard = self.engine.read();
+        let engine = engine_guard.as_ref()?;
+
+        let resources = engine.url_cosmetic_resources(url);
+
+        if resources.hide_selectors.is_empty() {
+            return None;
+        }
+
+        let joined = resources.hide_selectors
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let mut css = String::new();
+        css.push_str(&joined);
+        css.push_str(" { display: none !important; }\n");
+
+        Some(css)
+    }
     pub fn load_from_cache(&self, cached_bytes: &[u8]) -> Result<(), AdsBlockError> {
         let mut new_engine = Engine::default();
         new_engine

@@ -118,6 +118,7 @@ pub unsafe extern "C" fn brxon_should_load(
     handle:       BrxonHandle,
     content_type: u32,
     uri:          *const c_char,
+    source_uri:   *const c_char,   // جديد — ممكن يكون null لو ما توفر
 ) -> policy::BrxonDecision {
     use policy::{BrxonDecision, policy_decision};
 
@@ -135,15 +136,21 @@ pub unsafe extern "C" fn brxon_should_load(
         Err(_) => return null_accept,
     };
 
+    // source_uri اختياري — لو null نمرر ""
+    let source_str = if source_uri.is_null() {
+        ""
+    } else {
+        CStr::from_ptr(source_uri).to_str().unwrap_or("")
+    };
+
     let engine  = &*handle;
-    let outcome = engine.policy.should_load(content_type, uri_str);
+    let outcome = engine.policy.should_load_with_source(content_type, uri_str, source_str);
 
     BrxonDecision {
         decision:        outcome.to_gecko_decision(),
         show_block_page: outcome == policy::PolicyOutcome::RejectWithBlockPage,
     }
 }
-
 #[no_mangle]
 pub unsafe extern "C" fn brxon_shutdown(handle: BrxonHandle) {
     if handle.is_null() { return; }
@@ -250,4 +257,38 @@ pub unsafe extern "C" fn brxon_ads_is_ready(handle: BrxonHandle) -> bool {
 pub unsafe extern "C" fn brxon_ads_needs_update(handle: BrxonHandle) -> bool {
     if handle.is_null() { return false; }
     (*handle).ads_engine.needs_update()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn brxon_ads_cosmetic_css(
+    handle: BrxonHandle,
+    uri: *const c_char,
+    out_len: *mut usize,
+) -> *mut u8 {
+    *out_len = 0;
+    if handle.is_null() || uri.is_null() { return std::ptr::null_mut(); }
+
+    let uri_str = match CStr::from_ptr(uri).to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let engine = &*handle;
+    match engine.ads_engine.cosmetic_css_for_url(uri_str) {
+        Some(css) => {
+            let mut bytes = css.into_bytes().into_boxed_slice();
+            *out_len = bytes.len();
+            let ptr = bytes.as_mut_ptr();
+            std::mem::forget(bytes);
+            ptr
+        }
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn brxon_free_css_buffer(ptr: *mut u8, len: usize) {
+    if !ptr.is_null() {
+        let _ = Vec::from_raw_parts(ptr, len, len);
+    }
 }

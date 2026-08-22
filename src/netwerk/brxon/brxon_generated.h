@@ -97,7 +97,10 @@ BrxonHandle brxon_init(const char *server_base);
 
 void brxon_start(BrxonHandle handle);
 
-BrxonDecision brxon_should_load(BrxonHandle handle, uint32_t content_type, const char *uri);
+BrxonDecision brxon_should_load(BrxonHandle handle,
+                                uint32_t content_type,
+                                const char *uri,
+                                const char *source_uri);
 
 void brxon_shutdown(BrxonHandle handle);
 
@@ -116,6 +119,10 @@ bool brxon_ads_ingest_lists_json(BrxonHandle handle, const uint8_t *json_bytes, 
 bool brxon_ads_is_ready(BrxonHandle handle);
 
 bool brxon_ads_needs_update(BrxonHandle handle);
+
+uint8_t *brxon_ads_cosmetic_css(BrxonHandle handle, const char *uri, uintptr_t *out_len);
+
+void brxon_free_css_buffer(uint8_t *ptr, uintptr_t len);
 
 }  // extern "C"
 
