@@ -3,50 +3,41 @@
    - License, v. 2.0. If a copy of the MPL was not distributed with this
    - file, You can obtain one at http://mozilla.org/MPL/2.0/.
    -->
-<!-- TODO: Get a job -->
+<!-- TODO: احصل على وظيفة -->
+
 <img src="./docs/assets/zen-dark.svg" width="100px" align="left">
 
-### `Zen Browser`
+### `متصفح باز`
 
-[![Downloads](https://img.shields.io/github/downloads/zen-browser/desktop/total.svg)](https://github.com/zen-browser/desktop/releases)
+[![التنزيلات](https://img.shields.io/github/downloads/Mohamed-Abdallh776/desktop/total.svg)](https://github.com/Mohamed-Abdallh776/desktop/releases)
 [![Crowdin](https://badges.crowdin.net/zen-browser/localized.svg)](https://crowdin.com/project/zen-browser)
-[![Zen Release builds](https://github.com/zen-browser/desktop/actions/workflows/build.yml/badge.svg?branch=stable)](https://github.com/zen-browser/desktop/actions/workflows/build.yml)
 
-Zen is a firefox-based browser with the aim of pushing your productivity to a new level!
+متصفح باز هو متصفح مبني على فايرفوكس وZen، يهدف إلى الارتقاء بإنتاجيتك إلى مستوى جديد!
+
+تم بناء متصفح باز مع محرك حجب وتكسير المحتوى الإباحي **Brxon** في إصداره الأول، بالإضافة إلى حاجب إعلانات أولي مكتوب بلغة **Rust**.
+
+نرحب بالجميع في مجتمعنا على ريديت: [r/Baz_browser](https://www.reddit.com/r/Baz_browser/)
 
 <div flex="true">
-  <a href="https://zen-browser.app/download">
-    Download
+  <a href="https://bazbrowser.netlify.app">
+    تحميل
   </a>
   •
-  <a href="https://zen-browser.app">
-    Website
+  <a href="https://bazbrowser.netlify.app">
+    الموقع الإلكتروني
   </a>
   •
   <a href="https://docs.zen-browser.app">
-    Documentation
-  </a>
-  •
-  <a href="https://zen-browser.app/release-notes/latest">
-    Release Notes
+    التوثيق
   </a>
 </div>
 
-### Firefox Versions
+### إصدارات فايرفوكس
 
-- [`Release`](https://zen-browser.app/download) - Is currently built using Firefox version `153.0.4`! 🚀
-- [`Twilight`](https://zen-browser.app/download?twilight) - Is currently built using Firefox version `RC 153.0.4`!
+- [`Release`](https://bazbrowser.netlify.app) - مبني حاليًا باستخدام إصدار فايرفوكس `153.0.4`! 🚀
 
-### Contributing
+### المساهمة
 
-If you'd like to report a bug, please do so on our [GitHub Issues page](https://github.com/zen-browser/desktop/issues/) and for feature requests, you can use [GitHub Discussions](https://github.com/zen-browser/desktop/discussions).
+إذا كنت ترغب في الإبلاغ عن خطأ، يرجى القيام بذلك عبر [صفحة GitHub Issues](https://github.com/Mohamed-Abdallh776/desktop/issues/)، وبالنسبة لطلبات الميزات، يمكنك استخدام [GitHub Discussions](https://github.com/Mohamed-Abdallh776/desktop/discussions).
 
-Zen is an open-source project, and we welcome contributions from the community! Please take a look at the [contribution guidelines](./docs/contribute.md) before getting started!
-
-#### Partners
-
-Thanks to all the partners of Zen for their support and contributions:
-
-<a href="https://blacksmith.sh">
-  <img src="./docs/assets/blacksmith-yellow.png" width="350px"/>
-</a>
+متصفح باز هو مشروع مفتوح المصدر، ونرحب بمساهمات المجتمع! 
