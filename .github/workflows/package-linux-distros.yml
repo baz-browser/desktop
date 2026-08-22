@@ -1,0 +1,159 @@
+name: Package Linux Distros
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version string to embed in packages (e.g. 1.0.0)"
+        required: true
+        type: string
+      artifact-name:
+        description: "Name of the uploaded GH Actions artifact containing the built tarball"
+        required: true
+        type: string
+      tarball-name:
+        description: "Filename of the tar.xz inside that artifact"
+        required: true
+        type: string
+
+jobs:
+  package-deb:
+    name: Package .deb (Debian/Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: dist
+
+      - name: Extract tarball
+        run: |
+          set -e
+          mkdir -p extracted
+          tar -xJf "dist/${{ inputs.tarball-name }}" -C extracted --strip-components=1
+
+      - name: Stage application icons
+        run: bash packaging/stage-icons.sh icons
+
+      - name: Build .deb package
+        run: |
+          set -e
+          VERSION="${{ inputs.version }}"
+          PKGROOT="pkgroot-deb"
+          rm -rf "$PKGROOT"
+          mkdir -p "$PKGROOT/DEBIAN" "$PKGROOT/opt/baz" "$PKGROOT/usr/bin" "$PKGROOT/usr/share/applications" "$PKGROOT/usr/share/icons"
+
+          cp -r extracted/* "$PKGROOT/opt/baz/"
+          ln -sf /opt/baz/baz "$PKGROOT/usr/bin/baz"
+          cp packaging/baz.desktop "$PKGROOT/usr/share/applications/baz.desktop"
+          cp -r icons/hicolor "$PKGROOT/usr/share/icons/hicolor"
+
+          sed "s/VERSION_PLACEHOLDER/$VERSION/" packaging/debian/control > "$PKGROOT/DEBIAN/control"
+          chmod 0755 "$PKGROOT/DEBIAN"
+
+          sudo apt-get update
+          sudo apt-get install -y fakeroot
+          fakeroot dpkg-deb --build "$PKGROOT" "baz_${VERSION}_amd64.deb"
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: baz.linux.deb
+          path: "*.deb"
+          retention-days: 7
+
+  package-rpm:
+    name: Package .rpm (Fedora)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install rpmbuild
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: dist
+
+      - name: Stage application icons
+        run: bash packaging/stage-icons.sh icons
+
+      - name: Set up rpmbuild tree
+        run: |
+          set -e
+          mkdir -p ~/rpmbuild/{SOURCES,SPECS,RPMS,BUILD,BUILDROOT}
+          cp "dist/${{ inputs.tarball-name }}" ~/rpmbuild/SOURCES/
+          cp packaging/baz.desktop ~/rpmbuild/SOURCES/
+          cp -r icons ~/rpmbuild/SOURCES/icons
+          sed "s/VERSION_PLACEHOLDER/${{ inputs.version }}/" packaging/rpm/baz.spec > ~/rpmbuild/SPECS/baz.spec
+
+      - name: Build .rpm package
+        run: |
+          rpmbuild -bb ~/rpmbuild/SPECS/baz.spec \
+            --define "_tarball ${{ inputs.tarball-name }}"
+
+      - name: Collect rpm
+        run: |
+          mkdir -p rpm-out
+          find ~/rpmbuild/RPMS -name "*.rpm" -exec cp {} rpm-out/ \;
+
+      - name: Upload .rpm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: baz.linux.rpm
+          path: rpm-out/*.rpm
+          retention-days: 7
+
+  package-arch:
+    name: Package .pkg.tar.zst (Arch)
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: dist
+
+      - name: Prepare build user
+        run: |
+          set -e
+          pacman -Sy --noconfirm --needed sudo
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Stage application icons
+        run: bash packaging/stage-icons.sh icons
+
+      - name: Build Arch package
+        run: |
+          set -e
+          VERSION="${{ inputs.version }}"
+          cp "dist/${{ inputs.tarball-name }}" packaging/arch/
+          cp packaging/baz.desktop packaging/arch/
+          cp -r icons packaging/arch/icons
+          sed -i "s/VERSION_PLACEHOLDER/$VERSION/" packaging/arch/PKGBUILD
+          sed -i "s/TARBALL_PLACEHOLDER/${{ inputs.tarball-name }}/" packaging/arch/PKGBUILD
+          chown -R builder:builder packaging/arch
+          su builder -c "cd packaging/arch && makepkg -s --noconfirm"
+
+      - name: Upload Arch package
+        uses: actions/upload-artifact@v4
+        with:
+          name: baz.linux.pkg.tar.zst
+          path: packaging/arch/*.pkg.tar.zst
+          retention-days: 7
