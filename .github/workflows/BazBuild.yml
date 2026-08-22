@@ -225,3 +225,11 @@ jobs:
           retention-days: 7
           name: baz.linux-x86_64.tar.xz
           path: ./baz.linux-x86_64.tar.xz
+  package-linux:
+    name: Package for Linux distros
+    needs: build-linux
+    uses: ./.github/workflows/package-linux-distros.yml
+    with:
+      version: ${{ inputs.display-version }}
+      artifact-name: baz.linux-x86_64.tar.xz
+      tarball-name: baz.linux-x86_64.tar.xz
