@@ -24,7 +24,7 @@ package() {
   fi
 
   install -d "${pkgdir}/usr/bin"
-  ln -s /opt/baz/baz "${pkgdir}/usr/bin/baz"
+  ln -s /opt/baz/Baz "${pkgdir}/usr/bin/baz"
 
   install -Dm644 "${srcdir}/baz.desktop" "${pkgdir}/usr/share/applications/baz.desktop"
 

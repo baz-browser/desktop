@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Baz
 Comment=Browse the web
-Exec=/opt/baz/baz %u
+Exec=/opt/baz/Baz %u
 Terminal=false
 Type=Application
 Icon=baz

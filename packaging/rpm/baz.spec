@@ -30,7 +30,7 @@ mkdir -p %{buildroot}/opt/baz
 tar -xJf %{SOURCE0} -C %{buildroot}/opt/baz --strip-components=1
 
 mkdir -p %{buildroot}/usr/bin
-ln -sf /opt/baz/baz %{buildroot}/usr/bin/baz
+ln -sf /opt/baz/Baz %{buildroot}/usr/bin/baz
 
 mkdir -p %{buildroot}/usr/share/applications
 install -m 0644 %{SOURCE1} %{buildroot}/usr/share/applications/baz.desktop

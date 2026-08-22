@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# يبني بنية hicolor icon theme القياسية من أيقونات configs/branding/release/
-# الاستخدام: stage-icons.sh <output-dir>
+
 set -e
 
 OUT="${1:?usage: stage-icons.sh <output-dir>}"
