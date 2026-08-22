@@ -1,0 +1,33 @@
+# Maintainer: Baz Browser Team <maintainer@example.com>
+pkgname=baz-browser-bin
+pkgver=VERSION_PLACEHOLDER
+pkgrel=1
+pkgdesc="Baz Browser, a Firefox-based web browser with hardened networking (brxon)"
+arch=('x86_64')
+url="https://example.com/baz"
+license=('MPL-2.0')
+depends=('gtk3' 'alsa-lib' 'dbus' 'dbus-glib' 'libdrm' 'libxt' 'curl')
+options=('!strip' '!debug')
+source=("TARBALL_PLACEHOLDER" "baz.desktop")
+sha256sums=('SKIP' 'SKIP')
+
+package() {
+  install -d "${pkgdir}/opt/baz"
+  # يفك محتوى الأرشيف مباشرة داخل مجلد الحزمة (strip المجلد الجذري الوحيد داخل tar.xz)
+  local extracted
+  extracted=$(find "${srcdir}" -maxdepth 1 -type d ! -path "${srcdir}")
+  if [ -n "$extracted" ]; then
+    cp -r "${extracted}"/* "${pkgdir}/opt/baz/"
+  else
+    cp -r "${srcdir}"/* "${pkgdir}/opt/baz/"
+    rm -f "${pkgdir}/opt/baz/baz.desktop"
+  fi
+
+  install -d "${pkgdir}/usr/bin"
+  ln -s /opt/baz/baz "${pkgdir}/usr/bin/baz"
+
+  install -Dm644 "${srcdir}/baz.desktop" "${pkgdir}/usr/share/applications/baz.desktop"
+
+  install -d "${pkgdir}/usr/share/icons"
+  cp -r "${startdir}/icons/hicolor" "${pkgdir}/usr/share/icons/hicolor"
+}
