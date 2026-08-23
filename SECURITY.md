@@ -8,4 +8,9 @@
 
 ## Reporting a Vulnerability
 
-Please report security vulnerabilities [here](https://github.com/zen-browser/desktop/security/advisories/new)
+Please report security vulnerabilities via one of the following:
+
+- [GitHub Security Advisories](https://github.com/baz-browser/desktop/security/advisories/new)
+- Email: [BAZ.Browser@protonmail.com](mailto:BAZ.Browser@protonmail.com)
+
+We will do our best to respond promptly and keep you updated on the status of your report.

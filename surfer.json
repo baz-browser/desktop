@@ -22,7 +22,7 @@
       "release": {
         "displayVersion": "1.21.14b",
         "github": {
-          "repo": "zen-browser/desktop"
+          "repo": "baz-browser/desktop"
         },
         "archives": {
           "windows": "windows.mar",
@@ -36,13 +36,13 @@
     },
     "twilight": {
       "backgroundColor": "#282A33",
-      "brandShorterName": "Zen",
+      "brandShorterName": "Baz",
       "brandShortName": "Twilight",
-      "brandFullName": "Zen Twilight",
+      "brandFullName": "Baz Twilight",
       "release": {
         "displayVersion": "1.22t",
         "github": {
-          "repo": "zen-browser/desktop"
+          "repo": "baz-browser/desktop"
         }
       }
     }
@@ -53,5 +53,5 @@
     ],
     "licenseType": "MPL-2.0"
   },
-  "updateHostname": "updates.zen-browser.app"
+  "updateHostname": "updates.bazbrowser.app"
 }
