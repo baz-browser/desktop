@@ -199,18 +199,11 @@ ThreatBlocker::ShouldLoad(nsIURI* aURI, nsILoadInfo* aLoadInfo,
       static_cast<uint32_t>(aLoadInfo->InternalContentPolicyType());
 
   
-  nsAutoCString sourceSpec;  
-  RefPtr<dom::BrowsingContext> bc = aLoadInfo->GetBrowsingContext();
-  if (bc) {
-    RefPtr<dom::BrowsingContext> top = bc->Top();
-    if (top && !top->IsDiscarded()) {
-      if (dom::WindowContext* wc = top->GetCurrentWindowContext()) {
-        nsIURI* docURI = wc->GetDocumentURI();
-        if (docURI) {
-          docURI->GetSpec(sourceSpec);
-        }
-      }
-    }
+  nsAutoCString sourceSpec;
+
+  nsCOMPtr<nsIPrincipal> topPrincipal = aLoadInfo->GetTopLevelPrincipal();
+  if (topPrincipal && !topPrincipal->IsSystemPrincipal()) {
+    topPrincipal->GetAsciiSpec(sourceSpec);
   }
 
   if (sourceSpec.IsEmpty()) {
