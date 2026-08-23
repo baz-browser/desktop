@@ -20,6 +20,8 @@
 #include "nsDocShellLoadState.h"
 #include "nsDocShellLoadTypes.h"
 #include "mozilla/dom/BrowsingContext.h"
+#include "mozilla/dom/Document.h"
+#include "nsIDOMWindowUtils.h"
 #include "nsIStreamLoader.h"
 #include "nsIInputStream.h"
 #include "mozilla/JSONWriter.h"
@@ -30,8 +32,8 @@ namespace mozilla::net {
 static LazyLogModule sBrxonLog("Brxon");
 static LazyLogModule sBrxonAdsLog("BrxonAds");
 static StaticRefPtr<ThreatBlocker> sSingleton;
-static const uint32_t kAdsUpdateIntervalMs = 60 * 60 * 1000; //هذه الميزة ليست مثل ادوات الحجب المشهوره بل كتجربه للنسخه التجريبيه وحدة تاريخ التحديث لكل القوائم لكن بتقدر تعمل مثل UBOبعمل تاريخ صلاحيه لكل قائمه 
-static const uint32_t kMaxAdsListBytes = 20 * 1024 * 1024; 
+static const uint32_t kAdsUpdateIntervalMs = 60 * 60 * 1000; //هذه الميزة ليست مثل ادوات الحجب المشهوره بل كتجربه للنسخه التجريبيه وحدة تاريخ التحديث لكل القوائم لكن بتقدر تعمل مثل UBOبعمل تاريخ صلاحيه لكل قائمه
+static const uint32_t kMaxAdsListBytes = 20 * 1024 * 1024;
 
 struct AdsListSpec {
   const char* label;
@@ -72,6 +74,10 @@ class NsCStringJSONWriteFunc final : public JSONWriteFunc {
   nsACString& mBuffer;
 };
 
+// ─────────────────────────────────────────────────────────────────────────
+//  دورة حياة ThreatBlocker
+// ─────────────────────────────────────────────────────────────────────────
+
 already_AddRefed<ThreatBlocker> ThreatBlocker::GetSingleton() {
   if (!sSingleton) {
     sSingleton = new ThreatBlocker();
@@ -95,7 +101,7 @@ void ThreatBlocker::Init() {
     obs->AddObserver(this, "xpcom-shutdown", false);
     obs->AddObserver(this, "document-element-inserted", false);
   }
-  
+
   FetchAllAdsLists();
 }
 
@@ -108,6 +114,10 @@ void ThreatBlocker::Shutdown() {
 }
 
 ThreatBlocker::~ThreatBlocker() { Shutdown(); }
+
+// ─────────────────────────────────────────────────────────────────────────
+//  nsIObserver
+// ─────────────────────────────────────────────────────────────────────────
 
 NS_IMETHODIMP
 ThreatBlocker::Observe(nsISupports* aSubject, const char* aTopic,
@@ -125,19 +135,32 @@ ThreatBlocker::Observe(nsISupports* aSubject, const char* aTopic,
   return NS_OK;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+//  حقن CSS التجميلي (cosmetic filtering)
+// ─────────────────────────────────────────────────────────────────────────
+
 void ThreatBlocker::InjectCosmeticCss(nsISupports* aSubject) {
-  if (!mHandle) return;
+  if (!mHandle) {
+    return;
+  }
 
   nsCOMPtr<dom::Document> doc = do_QueryInterface(aSubject);
-  if (!doc) return;
+  if (!doc) {
+    return;
+  }
 
   nsIURI* docURI = doc->GetDocumentURI();
-  if (!docURI) return;
+  if (!docURI) {
+    return;
+  }
 
-  bool isHttp = false, isHttps = false;
+  bool isHttp = false;
+  bool isHttps = false;
   docURI->SchemeIs("http", &isHttp);
   docURI->SchemeIs("https", &isHttps);
-  if (!isHttp && !isHttps) return;
+  if (!isHttp && !isHttps) {
+    return;
+  }
 
   nsAutoCString spec;
   docURI->GetSpec(spec);
@@ -151,11 +174,13 @@ void ThreatBlocker::InjectCosmeticCss(nsISupports* aSubject) {
   nsAutoCString cssText(reinterpret_cast<const char*>(cssBytes), cssLen);
   brxon_free_css_buffer(cssBytes, cssLen);
 
+  // ترميز الـ CSS يدويًا لبناء data: URI صالح
   nsAutoCString encoded;
   for (size_t i = 0; i < cssText.Length(); ++i) {
     unsigned char c = static_cast<unsigned char>(cssText[i]);
     if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-        (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~') {
+        (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' ||
+        c == '~') {
       encoded.Append(static_cast<char>(c));
     } else {
       char buf[4];
@@ -173,13 +198,73 @@ void ThreatBlocker::InjectCosmeticCss(nsISupports* aSubject) {
   }
 
   nsPIDOMWindowOuter* win = doc->GetWindow();
-  if (!win) return;
+  if (!win) {
+    return;
+  }
 
   nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(win);
   if (utils) {
     utils->LoadSheetUsingURIString(dataUri, nsIDOMWindowUtils::AGENT_SHEET);
   }
+}
 
+// ─────────────────────────────────────────────────────────────────────────
+//  nsIContentPolicy — ShouldLoad
+// ─────────────────────────────────────────────────────────────────────────
+
+/// يحسب مصدر الطلب (عنوان الصفحة الأساسية) لأغراض مطابقة third-party.
+/// آمن للاستدعاء من عملية الأب وعملية المحتوى على حد سواء — لا يلمس
+/// BrowsingContext/WindowGlobalParent إطلاقًا.
+static void ComputeSourceSpec(nsILoadInfo* aLoadInfo, nsACString& aOutSpec) {
+  aOutSpec.Truncate();
+
+  nsCOMPtr<nsIPrincipal> topPrincipal = aLoadInfo->GetTopLevelPrincipal();
+  if (topPrincipal && !topPrincipal->IsSystemPrincipal()) {
+    topPrincipal->GetAsciiSpec(aOutSpec);
+  }
+
+  if (aOutSpec.IsEmpty()) {
+    nsCOMPtr<nsIPrincipal> triggering = aLoadInfo->TriggeringPrincipal();
+    if (triggering && !triggering->IsSystemPrincipal()) {
+      triggering->GetAsciiSpec(aOutSpec);
+    }
+  }
+}
+
+/// يوجّه التبويب لصفحة الحجب about:brxon-block. يُستدعى فقط عندما تكون
+/// النتيجة show_block_page == true، ويحسب BrowsingContext محليًا هنا فقط
+///ركز  (مو بمكان مبكر بالدالة) لتفادي حسابه بدون داعٍ بالحالة الشائعة (ACCEPT).
+static void NavigateToBlockPage(nsILoadInfo* aLoadInfo,
+                                 const nsACString& aBlockedUri) {
+  nsAutoCString blockURI("about:brxon-block?url=");
+  blockURI.Append(aBlockedUri);
+
+  nsCOMPtr<nsIURI> blockPageURI;
+  if (NS_FAILED(NS_NewURI(getter_AddRefs(blockPageURI), blockURI))) {
+    return;
+  }
+
+  RefPtr<dom::BrowsingContext> bc = aLoadInfo->GetBrowsingContext();
+  if (!bc || bc->IsDiscarded()) {
+    MOZ_LOG(sBrxonLog, LogLevel::Warning,
+            ("Brxon: ما فيه BrowsingContext صالح — تعذّر التوجيه"));
+    return;
+  }
+
+  nsCOMPtr<nsIRunnable> navigateRunnable = NS_NewRunnableFunction(
+      "ThreatBlocker::NavigateToBlockPage", [bc, blockPageURI]() {
+        if (!bc || bc->IsDiscarded()) {
+          return;
+        }
+        RefPtr<nsDocShellLoadState> loadState =
+            new nsDocShellLoadState(blockPageURI);
+        loadState->SetTriggeringPrincipal(
+            nsContentUtils::GetSystemPrincipal());
+        loadState->SetLoadType(LOAD_NORMAL_REPLACE);
+        loadState->SetFirstParty(true);
+        bc->LoadURI(loadState, /* aSetNavigating */ true);
+      });
+  NS_DispatchToMainThread(navigateRunnable.forget());
 }
 
 NS_IMETHODIMP
@@ -193,68 +278,32 @@ ThreatBlocker::ShouldLoad(nsIURI* aURI, nsILoadInfo* aLoadInfo,
 
   nsAutoCString uri;
   nsresult rv = aURI->GetSpec(uri);
-  if (NS_FAILED(rv)) return NS_OK;
+  if (NS_FAILED(rv)) {
+    return NS_OK;
+  }
 
   uint32_t contentType =
       static_cast<uint32_t>(aLoadInfo->InternalContentPolicyType());
 
-  
   nsAutoCString sourceSpec;
-
-  nsCOMPtr<nsIPrincipal> topPrincipal = aLoadInfo->GetTopLevelPrincipal();
-  if (topPrincipal && !topPrincipal->IsSystemPrincipal()) {
-    topPrincipal->GetAsciiSpec(sourceSpec);
-  }
-
-  if (sourceSpec.IsEmpty()) {
-    nsCOMPtr<nsIPrincipal> triggering = aLoadInfo->TriggeringPrincipal();
-    if (triggering && !triggering->IsSystemPrincipal()) {
-      triggering->GetAsciiSpec(sourceSpec);
-    }
-  }
-
+  ComputeSourceSpec(aLoadInfo, sourceSpec);
 
   BrxonDecision result = brxon_should_load(
       mHandle, contentType, uri.get(),
       sourceSpec.IsEmpty() ? nullptr : sourceSpec.get());
- 
- *aDecision = result.decision;
 
-  if (result.show_block_page) {
-    MOZ_LOG(sBrxonLog, LogLevel::Info,
-            ("Brxon: حجب موقع → about:brxon-block [%s]", uri.get()));
+  *aDecision = result.decision;
 
-    *aDecision = nsIContentPolicy::REJECT_REQUEST;
-
-    nsAutoCString blockURI("about:brxon-block?url=");
-    blockURI.Append(uri);
-    nsCOMPtr<nsIURI> blockPageURI;
-    if (NS_FAILED(NS_NewURI(getter_AddRefs(blockPageURI), blockURI))) {
-      return NS_OK;
-    }
-
-    
-    if (!bc || bc->IsDiscarded()) {
-      MOZ_LOG(sBrxonLog, LogLevel::Warning,
-              ("Brxon: ما فيه BrowsingContext صالح — تعذّر التوجيه"));
-      return NS_OK;
-    }
-
-    nsCOMPtr<nsIRunnable> navigateRunnable = NS_NewRunnableFunction(
-        "ThreatBlocker::NavigateToBlockPage", [bc, blockPageURI]() {
-          if (!bc || bc->IsDiscarded()) {
-            return;
-          }
-          RefPtr<nsDocShellLoadState> loadState =
-              new nsDocShellLoadState(blockPageURI);
-          loadState->SetTriggeringPrincipal(
-              nsContentUtils::GetSystemPrincipal());
-          loadState->SetLoadType(LOAD_NORMAL_REPLACE);
-          loadState->SetFirstParty(true);
-          bc->LoadURI(loadState, /* aSetNavigating */ true);
-        });
-    NS_DispatchToMainThread(navigateRunnable.forget());
+  if (!result.show_block_page) {
+    return NS_OK;
   }
+
+  MOZ_LOG(sBrxonLog, LogLevel::Info,
+          ("Brxon: حجب موقع → about:brxon-block [%s]", uri.get()));
+
+  *aDecision = nsIContentPolicy::REJECT_REQUEST;
+
+  NavigateToBlockPage(aLoadInfo, uri);
 
   return NS_OK;
 }
@@ -265,7 +314,9 @@ ThreatBlocker::ShouldProcess(nsIURI*, nsILoadInfo*, int16_t* aDecision) {
   return NS_OK;
 }
 
-// ── AdsListCoordinator ─────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
+//  AdsListCoordinator
+// ─────────────────────────────────────────────────────────────────────────
 
 void AdsListCoordinator::OnListFetched(const nsACString& aJsonObjectOrEmpty) {
   if (!aJsonObjectOrEmpty.IsEmpty()) {
@@ -309,7 +360,9 @@ void AdsListCoordinator::Finish() {
   }
 }
 
-// ── AdsListFetchObserver ────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
+//  AdsListFetchObserver
+// ─────────────────────────────────────────────────────────────────────────
 
 NS_IMPL_ISUPPORTS(AdsListFetchObserver, nsIStreamLoaderObserver)
 
@@ -337,7 +390,6 @@ AdsListFetchObserver::OnStreamComplete(nsIStreamLoader* aLoader,
 
   nsDependentCSubstring rawText(reinterpret_cast<const char*>(aData),
                                  aLength);
-  
 
   nsAutoCString trimmed(rawText);
   trimmed.Trim(" \t\r\n");
@@ -365,7 +417,9 @@ AdsListFetchObserver::OnStreamComplete(nsIStreamLoader* aLoader,
   return NS_OK;
 }
 
-// ── ThreatBlocker::FetchAllAdsLists ─────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
+//  ThreatBlocker::FetchAllAdsLists
+// ─────────────────────────────────────────────────────────────────────────
 
 void ThreatBlocker::FetchAllAdsLists() {
   RefPtr<AdsListCoordinator> coordinator =
@@ -405,4 +459,4 @@ void ThreatBlocker::FetchAllAdsLists() {
 
 NS_IMPL_ISUPPORTS(ThreatBlocker, nsIContentPolicy, nsIObserver)
 
-} // namespace mozilla::net
+}  // namespace mozilla::net
