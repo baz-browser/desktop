@@ -20,7 +20,6 @@
 #include "nsDocShellLoadState.h"
 #include "nsDocShellLoadTypes.h"
 #include "mozilla/dom/BrowsingContext.h"
-#include "mozilla/dom/WindowGlobalParent.h"
 #include "nsIStreamLoader.h"
 #include "nsIInputStream.h"
 #include "mozilla/JSONWriter.h"
@@ -205,8 +204,8 @@ ThreatBlocker::ShouldLoad(nsIURI* aURI, nsILoadInfo* aLoadInfo,
   if (bc) {
     RefPtr<dom::BrowsingContext> top = bc->Top();
     if (top && !top->IsDiscarded()) {
-      if (dom::WindowGlobalParent* wgp = top->Canonical()->GetCurrentWindowGlobal()) {
-        nsIURI* docURI = wgp->GetDocumentURI();
+      if (dom::WindowContext* wc = top->GetCurrentWindowContext()) {
+        nsIURI* docURI = wc->GetDocumentURI();
         if (docURI) {
           docURI->GetSpec(sourceSpec);
         }
