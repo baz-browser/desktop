@@ -24,6 +24,7 @@
 #include "nsIStreamLoader.h"
 #include "nsIInputStream.h"
 #include "mozilla/JSONWriter.h"
+#include "mozilla/SprintfLiteral.h"
 
 namespace mozilla::net {
 
@@ -159,7 +160,7 @@ void ThreatBlocker::InjectCosmeticCss(nsISupports* aSubject) {
       encoded.Append(static_cast<char>(c));
     } else {
       char buf[4];
-      snprintf(buf, sizeof(buf), "%%%02X", c);
+      SprintfLiteral(buf, "%%%02X", c);
       encoded.Append(buf);
     }
   }
