@@ -24,7 +24,7 @@
 #include "nsIStreamLoader.h"
 #include "nsIInputStream.h"
 #include "mozilla/JSONWriter.h"
-#include "mozilla/SprintfLiteral.h"
+#include "mozilla/Sprintf.h"
 
 namespace mozilla::net {
 
