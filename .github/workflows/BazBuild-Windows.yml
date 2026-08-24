@@ -1,0 +1,319 @@
+name: Build Baz Browser - Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      display-version:
+        description: "1.0.0"
+        required: true
+        default: "1.0.0"
+        type: string
+
+jobs:
+  build-windows:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    permissions:
+      contents: read
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      ZEN_GA_DISABLE_PGO: "1"
+      ZEN_DISABLE_LTO: "1"
+      SCCACHE_GHA_ENABLED: "true"
+
+    steps:
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@main
+        with:
+          disable_annotations: true
+
+      - name: Expose actions cache variables
+        uses: actions/github-script@v6
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env['ACTIONS_CACHE_URL'])
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env['ACTIONS_RUNTIME_TOKEN'])
+
+      - name: Setup Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install Node dependencies
+        run: |
+          npm ci
+          sudo apt-get update --fix-missing
+          sudo apt-get install -y python3 python3-pip dos2unix yasm nasm build-essential \
+            libgtk2.0-dev libpython3-dev m4 uuid libasound2-dev libcurl4-openssl-dev \
+            libdbus-1-dev libdrm-dev libdbus-glib-1-dev libgtk-3-dev libpulse-dev \
+            libx11-xcb-dev libxt-dev xvfb lld llvm
+
+      - name: Load Surfer CI setup
+        run: npm run surfer -- ci --brand release --display-version ${{ inputs.display-version }}
+
+      - name: Download Firefox source and dependencies
+        run: npm run download
+
+      - name: win-cross Cache
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: 5
+        id: cache-win-cross
+        uses: actions/cache@v4
+        with:
+          path: ${HOME}/win-cross
+          key: win-cross
+
+      - name: Setup for Windows
+        if: steps.cache-win-cross.outputs.cache-hit != 'true'
+        run: |
+          set -x
+          mkdir -p ~/win-cross
+          cd engine/
+          sudo apt-get install python3-launchpadlib
+          sudo add-apt-repository ppa:savoury1/backports
+          sudo apt-get update
+          sudo apt-get install -y python3-pip autoconf \
+            autoconf2.13 \
+            automake \
+            bison \
+            build-essential \
+            cabextract \
+            curl \
+            cmake \
+            flex \
+            gawk \
+            gcc-multilib \
+            git \
+            gnupg \
+            jq \
+            libbz2-dev \
+            libexpat1-dev \
+            libffi-dev \
+            libncursesw5-dev \
+            libsqlite3-dev \
+            libssl-dev \
+            libtool \
+            libucl-dev \
+            libxml2-dev \
+            msitools \
+            ninja-build \
+            openssh-client \
+            p7zip-full \
+            pkg-config \
+            procps \
+            python3-requests \
+            python3-toml \
+            scons \
+            subversion \
+            tar \
+            unzip \
+            uuid \
+            uuid-dev \
+            wget \
+            zip \
+            zlib1g-dev \
+            aria2
+          echo Setup wine
+          aria2c "https://firefox-ci-tc.services.mozilla.com/api/queue/v1/task/dQz_aHy8Rl-Lt0xf2WlrMw/artifacts/public/build/wine.tar.zst" -o wine.tar.zst
+          tar --zstd -xf wine.tar.zst -C ~/win-cross
+          rm wine.tar.zst
+          echo Setup Visual Studio
+          ./mach python --virtualenv build taskcluster/scripts/misc/get_vs.py build/vs/vs2026.yaml ~/win-cross/vs2026
+
+      - name: Import (apply Baz patches onto Firefox source)
+        env:
+          SURFER_COMPAT: x86_64
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain $(cat .rust-toolchain)
+          . "$HOME/.cargo/env"
+          rustup target add x86_64-pc-windows-msvc
+          npm run import -- --verbose
+
+      - name: Verify brxon wiring targets exist
+        run: |
+          grep -n "brxon-block" engine/browser/components/about/AboutRedirector.cpp && echo "OK: AboutRedirector.cpp" || (echo "MISSING: AboutRedirector.cpp" && exit 1)
+          grep -n "'brxon-block'" engine/browser/components/about/components.conf && echo "OK: components.conf" || (echo "MISSING: components.conf" && exit 1)
+
+      - name: Wire brxon into gkrust-shared
+        run: |
+          SHARED_CARGO="engine/toolkit/library/rust/shared/Cargo.toml"
+          SHARED_LIB="engine/toolkit/library/rust/shared/lib.rs"
+          BRXON_CARGO="engine/netwerk/brxon/Cargo.toml"
+          BRXON_MOZBUILD="engine/netwerk/brxon/moz.build"
+
+          if grep -v '^\s*#' "$BRXON_MOZBUILD" | grep -q 'RustLibrary("brxon")'; then
+            echo "FAIL: RustLibrary(\"brxon\") found, expected rlib overlay"
+            cat "$BRXON_MOZBUILD"
+            exit 1
+          fi
+          if ! grep -q 'crate-type = \["rlib"\]' "$BRXON_CARGO"; then
+            echo "FAIL: crate-type is not rlib"
+            cat "$BRXON_CARGO"
+            exit 1
+          fi
+
+          if grep -q '^brxon = ' "$SHARED_CARGO"; then
+            echo "Already wired in Cargo.toml"
+          else
+            awk '
+            /^\[dependencies\]/ && !done {
+              print $0
+              print "brxon = { path = \"../../../../netwerk/brxon\" }"
+              done = 1
+              next
+            }
+            { print $0 }
+            ' "$SHARED_CARGO" > "${SHARED_CARGO}.tmp" && mv "${SHARED_CARGO}.tmp" "$SHARED_CARGO"
+          fi
+          grep -n "brxon" "$SHARED_CARGO"
+
+          if grep -q "extern crate brxon;" "$SHARED_LIB"; then
+            echo "Already wired in lib.rs"
+          else
+            echo "extern crate brxon;" >> "$SHARED_LIB"
+          fi
+          grep -n "brxon" "$SHARED_LIB"
+
+          source "$HOME/.cargo/env"
+          cd engine
+          cargo update -p gkrust-shared 2>&1
+          grep -n -A2 'name = "brxon"' Cargo.lock
+
+      - name: Verify ThreatBlocker linkage
+        run: |
+          if [ -f "engine/netwerk/base/ThreatBlocker.cpp" ] && grep -q "brxon_init" "engine/netwerk/base/ThreatBlocker.cpp"; then
+            echo "OK: ThreatBlocker.cpp calls brxon_init"
+          else
+            echo "MISSING: ThreatBlocker.cpp or brxon_init call"
+            exit 1
+          fi
+
+      - name: Strip PGO options from mozconfig
+        run: |
+          MOZCONFIG_FILE="engine/mozconfig"
+          if [ -f "$MOZCONFIG_FILE" ]; then
+            sed -i '/with-pgo-profile-path/d;/with-pgo-jarlog/d;/enable-profile-use/d;/^MOZ_PGO/d;/^export MOZ_PGO/d' "$MOZCONFIG_FILE"
+          fi
+
+      - name: Enable sccache in mozconfig
+        run: |
+          MOZCONFIG_FILE="engine/mozconfig"
+          echo "" >> "$MOZCONFIG_FILE"
+          echo "ac_add_options --with-ccache=sccache" >> "$MOZCONFIG_FILE"
+          cat "$MOZCONFIG_FILE" | grep -i sccache
+
+      - name: Build language packs
+        run: sh scripts/download-language-packs.sh
+
+      - name: Bootstrap
+        run: |
+          set -x
+          cd engine/
+          chmod -R +x "$(echo ~)/win-cross/vs2026" || true
+          cd ..
+          export SURFER_PLATFORM="win32"
+          npm run bootstrap
+          cd engine/
+          echo "export LIB=\"$(cd ~/.mozbuild/clang/lib/clang/* && cd lib/windows && pwd)\"" >> ../configs/common/mozconfig
+          cat ../configs/common/mozconfig
+
+      - name: Setup Rust (windows-rs)
+        run: |
+          source $HOME/.cargo/env
+          WINDOWS_RS_VERSION=$(cat build/windows/.windows-rs-version)
+          cd engine/
+          cargo install cargo-download --locked
+          cargo download -x windows=$WINDOWS_RS_VERSION
+          export CARGO_INCREMENTAL=0
+          echo "" >> ../configs/common/mozconfig
+          echo "export MOZ_WINDOWS_RS_DIR=$(pwd)/windows-$WINDOWS_RS_VERSION" >> ../configs/common/mozconfig
+
+      - name: Vendor Rust dependencies (brxon)
+        run: |
+          source "$HOME/.cargo/env"
+          cd engine
+          ./mach vendor rust --ignore-modified --force
+
+      - name: Build
+        env:
+          SURFER_COMPAT: x86_64
+          ZEN_RELEASE_BRANCH: release
+        run: |
+          set -x
+          dos2unix configs/windows/mozconfig
+          export SURFER_PLATFORM="win32"
+          export ZEN_CROSS_COMPILING=1
+          mkdir -p build-logs
+          bash .github/workflows/src/release-build.sh > build-logs/build.log 2>&1
+          RC=$?
+          sccache --show-stats || true
+          pkill -9 -f sccache || true
+          if [ $RC -ne 0 ]; then
+            tail -n 300 build-logs/build.log || true
+            grep -n -E "error:|undefined reference|undefined symbol|fatal error|ld:|collect2:" build-logs/build.log | head -50 || true
+          fi
+          exit $RC
+
+      - name: Upload full build log (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baz-windows-build-log
+          path: build-logs/build.log
+          if-no-files-found: warn
+
+      - name: Package
+        env:
+          SURFER_COMPAT: x86_64
+          ZEN_GA_DISABLE_PGO: true
+        run: |
+          set -x
+          export SURFER_PLATFORM="win32"
+          export ZEN_CROSS_COMPILING=1
+          export ZEN_RELEASE=1
+          npm run package
+          ls ./dist
+
+      - name: Rename artifact to Baz.exe
+        run: |
+          set -ex
+          echo "Contents of dist/ before rename:"
+          ls -la dist/
+
+        
+          mv dist/[Zz]en*installer*.exe "Baz.exe" 2>/dev/null || \
+          mv dist/[Bb]az*installer*.exe "Baz.exe" 2>/dev/null || \
+          mv dist/*installer*.exe "Baz.exe" 2>/dev/null || \
+          mv dist/*.exe "Baz.exe"
+
+          echo "Final artifact:"
+          ls -la Baz.exe
+
+      - name: Upload build artifact (Baz.exe)
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: Baz.exe
+          path: ./Baz.exe
