@@ -23,9 +23,7 @@
     تحميل
   </a>
   •
-  <a href="https://bazbrowser.netlify.app">
-    الموقع الإلكتروني
-  </a>
+ 
   •
   <a href="https://github.com/baz-browser/desktop/issues">
     الإبلاغ عن مشكلة
