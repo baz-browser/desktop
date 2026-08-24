@@ -20,7 +20,7 @@
       "brandShortName": "Baz",
       "brandFullName": "Baz Browser",
       "release": {
-        "displayVersion": "1.21.14b",
+        "displayVersion": "1.0.0",
         "github": {
           "repo": "baz-browser/desktop"
         },
