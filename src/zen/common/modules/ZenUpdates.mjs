@@ -20,10 +20,15 @@ export default function checkForZenUpdates() {
   ) {
     return;
   }
-  const updateUrl = Services.prefs.getStringPref(
-    "app.releaseNotesURL.prompt",
-    ""
-  );
+  // Fork note: upstream pulled this from app.releaseNotesURL.prompt
+  // (a Firefox pref that Zen's branding pointed at zen-browser.app).
+  // We point it directly at our own domain instead of relying on that
+  // inherited pref, so it survives future syncs even if the pref value
+  // isn't overridden upstream.
+  const FORK_RELEASE_NOTES_BASE_URL = "https://www.reddit.com/r/Baz_browser/";
+  const updateUrl = FORK_RELEASE_NOTES_BASE_URL + "%VERSION%";
+  // Fork note: dropped the upstream "donate" link (pointed at
+  // zen-browser.app).
   createSidebarNotification({
     headingL10nId: "zen-sidebar-notification-updated-heading",
     autoHideMs: ZEN_UPDATE_NOTIFICATION_TIMEOUT_MS,
@@ -35,11 +40,6 @@ export default function checkForZenUpdates() {
         l10nId: "zen-sidebar-notification-updated",
         special: true,
         icon: "chrome://browser/skin/zen-icons/sparkles.svg",
-      },
-      {
-        url: "https://www.zen-browser.app/donate",
-        l10nId: "zen-sidebar-notification-donate",
-        icon: "chrome://browser/skin/zen-icons/heart-circle-fill.svg",
       },
       {
         action: () => {
