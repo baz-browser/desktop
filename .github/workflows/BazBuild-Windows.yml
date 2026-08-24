@@ -295,22 +295,15 @@ jobs:
           export ZEN_RELEASE=1
           npm run package
           ls ./dist
-
       - name: Rename artifact to Baz.exe
         run: |
           set -ex
           echo "Contents of dist/ before rename:"
           ls -la dist/
 
-        
-          mv dist/[Zz]en*installer*.exe "Baz.exe" 2>/dev/null || \
-          mv dist/[Bb]az*installer*.exe "Baz.exe" 2>/dev/null || \
-          mv dist/*installer*.exe "Baz.exe" 2>/dev/null || \
-          mv dist/*.exe "Baz.exe"
-
+          cp dist/Baz.installer.exe "Baz.exe"
           echo "Final artifact:"
           ls -la Baz.exe
-
       - name: Upload build artifact (Baz.exe)
         uses: actions/upload-artifact@v4
         with:
