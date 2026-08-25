@@ -10,11 +10,6 @@
 
 [![التنزيلات](https://img.shields.io/github/downloads/baz-browser/desktop/total.svg)](https://github.com/baz-browser/desktop/releases)
 [![الترخيص](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](./LICENSE)
-[
-
-![Crowdin](https://badges.crowdin.net/baz-browser/localized.svg)
-
-](https://crowdin.com/project/baz-browser)
 متصفح باز هو متصفح مبني على **فايرفوكس**، يهدف إلى الارتقاء بإنتاجيتك إلى مستوى جديد!
 
 تم بناء متصفح باز مع محرك حجب وتكسير المحتوى الإباحي **Brxon** في إصداره الأول، بالإضافة إلى حاجب إعلانات أولي مكتوب بلغة **Rust**.
