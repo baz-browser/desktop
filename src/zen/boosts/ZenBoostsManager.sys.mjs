@@ -140,6 +140,7 @@ class nsZenBoostsManager {
         sizeOverride: 1,
 
         zapSelectors: [],
+        focusSelectors: [],
         customCSS: "",
 
         changeWasMade: false,
@@ -249,25 +250,37 @@ class nsZenBoostsManager {
   }
 
   /**
+   * Returns the selector list of a boost for the given mode.
+   *
+   * @param {object} boostData - The boost data
+   * @param {string} mode - "zap" or "focus"
+   * @returns {Array} The entries of that mode
+   */
+  #selectorsForMode(boostData, mode) {
+    const key = mode === "focus" ? "focusSelectors" : "zapSelectors";
+    if (!boostData[key]) {
+      boostData[key] = [];
+    }
+    return boostData[key];
+  }
+
+  /**
    * Adds the zap selector to the selectors list and updates the website.
    *
    * @param {string} selector - Selector which will hide the elements
    * @param {string} domain - Domain of the target boost
+   * @param {string} [mode] - "zap" hides the elements, "focus" hides everything else
    */
-  addZapSelectorToActive(selector, domain) {
+  addZapSelectorToActive(selector, domain, mode = "zap") {
     const boost = this.loadActiveBoostFromStore(domain);
     if (!boost) {
       console.error("[ZenBoostsManager] Active boost is null");
       return;
     }
 
-    const { boostData } = boost.boostEntry;
-
-    if (!boostData.zapSelectors) {
-      boostData.zapSelectors = [];
-    }
-    if (!boostData.zapSelectors.includes(selector)) {
-      boostData.zapSelectors.push(selector);
+    const entries = this.#selectorsForMode(boost.boostEntry.boostData, mode);
+    if (!entries.includes(selector)) {
+      entries.push(selector);
     }
 
     this.updateBoost(boost);
@@ -278,21 +291,19 @@ class nsZenBoostsManager {
    *
    * @param {string} selector - Selector which will no longer hide the elements
    * @param {string} domain - Domain of the target boost
+   * @param {string} [mode] - The list it was added to, "zap" or "focus"
    */
-  removeZapSelectorToActive(selector, domain) {
+  removeZapSelectorToActive(selector, domain, mode = "zap") {
     const boost = this.loadActiveBoostFromStore(domain);
     if (!boost) {
       console.error("[ZenBoostsManager] Active boost is null");
       return;
     }
 
-    const { boostData } = boost.boostEntry;
-
-    if (boostData.zapSelectors && boostData.zapSelectors.includes(selector)) {
-      const i = boostData.zapSelectors.indexOf(selector);
-      if (i !== -1) {
-        boostData.zapSelectors.splice(i, 1);
-      }
+    const entries = this.#selectorsForMode(boost.boostEntry.boostData, mode);
+    const i = entries.indexOf(selector);
+    if (i !== -1) {
+      entries.splice(i, 1);
     }
 
     this.updateBoost(boost);
@@ -353,11 +364,13 @@ class nsZenBoostsManager {
   }
 
   /**
-   * Clears all zap selectors from a boost
+   * Clears the zap selectors of a boost
    *
    * @param {string} domain - Target boost domain
+   * @param {string|null} [mode] - Only clear "zap" or "focus" entries; both when omitted
+   * @param {string[]|null} [selectors] - Only clear these entries of that mode
    */
-  clearZapSelectorsForActive(domain) {
+  clearZapSelectorsForActive(domain, mode = null, selectors = null) {
     const boost = this.loadActiveBoostFromStore(domain);
     if (!boost) {
       console.error("[ZenBoostsManager] Active boost is null");
@@ -365,7 +378,17 @@ class nsZenBoostsManager {
     }
 
     const { boostData } = boost.boostEntry;
-    boostData.zapSelectors = [];
+    const clear = key => {
+      boostData[key] = selectors
+        ? (boostData[key] ?? []).filter(entry => !selectors.includes(entry))
+        : [];
+    };
+    if (mode !== "focus") {
+      clear("zapSelectors");
+    }
+    if (mode !== "zap") {
+      clear("focusSelectors");
+    }
 
     this.updateBoost(boost);
   }
@@ -606,9 +629,12 @@ class nsZenBoostsManager {
    * @param {Window} parentWindow - The parent browser window
    * @param {Boost} boost - The boost which will be edited
    * @param {nsIURI} domainUri - The boost which will be edited
+   * @param {object} [options]
+   * @param {Element} [options.browser] - Browser showing the site when it is
+   *   not the selected tab, e.g. a detached glance
    * @returns {Window|null} The instanced editor window
    */
-  openBoostWindow(parentWindow, boost, domainUri) {
+  openBoostWindow(parentWindow, boost, domainUri, { browser = null } = {}) {
     if (!this.canBoostSite(domainUri)) {
       console.error(
         "[ZenBoostsManager] Cannot open editor for boost with invalid domain."
@@ -623,12 +649,12 @@ class nsZenBoostsManager {
     const width = parentWindow.outerWidth;
     const height = parentWindow.outerHeight;
     const editorWidth = 185;
-    const editorHeight = 565;
+    const editorHeight = 685;
     const pad = 20;
 
-    let left = screenX + width + pad;
+    let left = screenX + width - editorWidth / 2;
     if (this.#areTabsOnRightSide()) {
-      left = screenX - (editorWidth + pad);
+      left = screenX - editorWidth / 2;
     }
 
     let top = screenY + height / 2 - editorHeight / 2;
@@ -648,26 +674,57 @@ class nsZenBoostsManager {
       null
     );
 
-    // Close the editor if the tab is switched
-    parentWindow.gBrowser.tabContainer.addEventListener(
-      "TabSelect",
-      editor.close.bind(editor),
-      {
-        once: true,
-      }
-    );
-
-    const progressListener = {
-      onLocationChange: webProgress => {
-        if (webProgress.isTopLevel) {
-          editor.close();
-          parentWindow.gBrowser.removeTabsProgressListener(progressListener);
+    editor.addEventListener(
+      "load",
+      () => {
+        const progressListener = {
+          QueryInterface: ChromeUtils.generateQI([
+            "nsIWebProgressListener",
+            "nsISupportsWeakReference",
+          ]),
+          onLocationChange: webProgress => {
+            if (webProgress.isTopLevel) {
+              editor.close();
+            }
+          },
+        };
+        const onTabSelect = editor.close.bind(editor);
+        if (browser) {
+          browser.addProgressListener(progressListener);
+          editor.addEventListener(
+            "unload",
+            () => {
+              browser.removeProgressListener(progressListener);
+              editor.browser = null;
+            },
+            { once: true }
+          );
+        } else {
+          // Close the editor if the tab is switched or navigates.
+          parentWindow.gBrowser.tabContainer.addEventListener(
+            "TabSelect",
+            onTabSelect,
+            { once: true }
+          );
+          parentWindow.gBrowser.addProgressListener(progressListener);
+          editor.addEventListener(
+            "unload",
+            () => {
+              parentWindow.gBrowser.tabContainer.removeEventListener(
+                "TabSelect",
+                onTabSelect
+              );
+              parentWindow.gBrowser.removeProgressListener(progressListener);
+              editor.browser = null;
+            },
+            { once: true }
+          );
         }
       },
-    };
+      { once: true }
+    );
 
-    parentWindow.gBrowser.addProgressListener(progressListener);
-
+    editor.browser = browser;
     // Give the domain
     editor.domain = domain;
     editor.openerWindow = parentWindow;
@@ -677,6 +734,118 @@ class nsZenBoostsManager {
     this.makeBoostActiveForDomain(domain, boost.id);
 
     return editor;
+  }
+
+  /**
+   * Opens the dialog that shares a boost as a link.
+   *
+   * @param {Window} parentWindow - The browser window to show the dialog in
+   * @param {object} boost - The boost: { id, domain, boostEntry }
+   * @param {MozBrowser} [browser] - The browser showing the boosted page
+   * @returns {Promise<void>} Resolves once the dialog closes
+   */
+  shareBoost(parentWindow, boost, browser = null) {
+    return parentWindow.gDialogBox.open(
+      "chrome://browser/content/zen-components/windows/zen-boost-share.xhtml",
+      { parentWindow, browser, boost }
+    );
+  }
+
+  isValidSharedDomain(domain) {
+    if (typeof domain !== "string" || !/^[a-z0-9.-]{1,253}$/i.test(domain)) {
+      return false;
+    }
+    try {
+      return new URL(`https://${domain}/`).host === domain.toLowerCase();
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Opens the dialog that offers a shared boost and, once the user has added
+   * it, shows the boosted site in a new tab.
+   *
+   * @param {Window} parentWindow - The browser window to show the dialog in
+   * @param {object} shared - The shared boost, as in share.schema.json
+   * @param {string} [author] - The sharer's name from the share server
+   * @returns {Promise<boolean>} Whether the boost was added
+   */
+  async receiveBoost(parentWindow, shared, author = null) {
+    if (!this.isValidSharedDomain(shared?.domain)) {
+      return false;
+    }
+    const args = { parentWindow, shared, author, added: false };
+    await parentWindow.gDialogBox.open(
+      "chrome://browser/content/zen-components/windows/zen-boost-receive.xhtml",
+      args
+    );
+    if (args.added) {
+      parentWindow.gZenUIManager.openAndChangeToTab(
+        `https://${shared.domain}/`
+      );
+    }
+    return args.added;
+  }
+
+  /**
+   * Turns shared boost data into boost data this version understands.
+   *
+   * @param {object} data - Boost data from a share
+   * @param {string} name - The shared boost's name
+   * @returns {object} Boost data for a new entry
+   */
+  boostDataFromShared(data, name) {
+    const result = this.getEmptyBoostEntry().boostData;
+    const sameShape = (value, template) =>
+      Array.isArray(template)
+        ? Array.isArray(value)
+        : typeof value === typeof template &&
+          (value !== null) === (template !== null);
+    for (const [key, template] of Object.entries(result)) {
+      const value = data?.[key];
+      if (!sameShape(value, template)) {
+        continue;
+      }
+      if (Array.isArray(template)) {
+        result[key] = value.filter(item => typeof item === "string");
+      } else if (typeof template === "object" && template !== null) {
+        const merged = { ...template };
+        for (const [field, fieldValue] of Object.entries(value)) {
+          if (
+            field in template &&
+            typeof fieldValue === typeof template[field]
+          ) {
+            merged[field] = fieldValue;
+          }
+        }
+        result[key] = merged;
+      } else if (typeof template === "number") {
+        result[key] = Number.isFinite(value) ? value : template;
+      } else {
+        result[key] = value;
+      }
+    }
+    result.customCSS = this.sanitizeSharedCSS(result.customCSS);
+    result.fontFamily = /^[\w\s,'"-]*$/.test(result.fontFamily)
+      ? result.fontFamily
+      : "";
+    if (
+      !["none", "uppercase", "lowercase", "capitalize"].includes(
+        result.textCaseOverride
+      )
+    ) {
+      result.textCaseOverride = "none";
+    }
+    result.boostName = name || result.boostName;
+    result.changeWasMade = true;
+    return result;
+  }
+
+  sanitizeSharedCSS(css) {
+    return String(css || "")
+      .replace(/@import\b[^;{]*;?/gi, "")
+      .replace(/\b(?:url|image-set|image)\s*\([^)]*\)/gi, "none");
   }
 
   /**

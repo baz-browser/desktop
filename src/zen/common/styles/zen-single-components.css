@@ -46,8 +46,8 @@
   min-height: 30px;
 }
 
-/* Firefox View */
 #firefox-view-button,
+#ai-window-toggle,
 #wrapper-firefox-view-button {
   display: none !important;
 }
@@ -185,7 +185,7 @@
 .toolbarbutton-1:not(#tabs-newtab-button),
 .urlbar-page-action,
 .identity-box-button {
-  --tab-border-radius: 6px;
+  --tab-border-radius: 8px;
   --toolbarbutton-border-radius: var(--tab-border-radius);
   --toolbarbutton-padding-inner: 6px;
   --toolbarbutton-padding-outer: 1px;
@@ -205,10 +205,8 @@
 }
 
 .zen-interactive-button {
-  background: color-mix(in srgb, currentColor 6%, transparent) !important;
-  transition:
-    background-color 0.12s ease-in-out,
-    transform 0.12s ease-in-out;
+  background: color-mix(in srgb, currentColor 5%, transparent) !important;
+  transition: transform 0.12s ease-in-out;
 
   &:hover {
     background-color: color-mix(in srgb, currentColor 10%, transparent) !important;
@@ -269,12 +267,13 @@
     padding: 6px;
 
     & > #statuspanel-label {
+      color-scheme: var(--toolbar-color-scheme);
       border-radius: 16px !important;
-      border: 1px solid rgba(225, 225, 225, 0.15) !important;
+      border: 1px solid light-dark(rgba(0, 0, 0, 0.15), rgba(225, 225, 225, 0.15)) !important;
       padding: 4px 8px 5px 8px !important;
       font-weight: 600 !important;
-      background: color-mix(in srgb, var(--zen-primary-color), black 70%) !important;
-      color: rgba(255, 255, 255, 0.8) !important;
+      background: color-mix(in srgb, var(--zen-primary-color), light-dark(white, black) 70%) !important;
+      color: light-dark(rgba(0, 0, 0, 0.8), rgba(255, 255, 255, 0.8)) !important;
     }
   }
 }
@@ -288,10 +287,10 @@
 
 #zen-unified-site-data-panel {
   --panel-padding: 0px;
-  --panel-width: 234px;
+  --panel-width: 220px;
   --menu-panel-width-wide: calc(var(--panel-width) - var(--panel-padding) * 2);
   --uei-icon-size: 16px;
-  --arrowpanel-menuitem-border-radius: 10px;
+  --arrowpanel-menuitem-border-radius: calc(10px * var(--zen-squircle-value));
 }
 
 #unified-extensions-empty-state,
@@ -337,16 +336,12 @@
 
     & > * {
       background-color: color-mix(in srgb, currentcolor 6%, transparent);
-      width: var(--size-item-xlarge);
+      width: 44px;
       height: var(--size-item-large);
       margin: 0;
       justify-content: center;
       align-items: center;
       border-radius: 6px;
-
-      @media not (-moz-platform: macos) {
-        border-radius: 4px;
-      }
 
       transition:
         background-color 0.1s ease-in-out,
@@ -354,6 +349,7 @@
 
       & toolbarbutton {
         background: transparent !important;
+        border-radius: 6px;
       }
 
       & .toolbarbutton-badge-stack {
@@ -379,8 +375,8 @@
 }
 
 .zen-site-data-section-header {
-  font-weight: 600;
-  font-size: 12px;
+  font-weight: 500;
+  font-size: 13px;
 
   & label {
     margin: 0;
@@ -462,6 +458,7 @@
 .permission-popup-permission-label,
 .permission-popup-boost-label {
   margin: 0;
+  font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -500,13 +497,16 @@
     transition:
       transform 0.12s ease-in-out,
       opacity 0.12s ease-in-out;
+    will-change: transform;
   }
 
+  /* stylelint-disable-next-line stylelint-plugin-mozilla/no-has-selector */
   .permission-popup-permission-item:hover &::before,
   .permission-popup-boost-item:hover:not(:has(.zen-permission-popup-boost-editor-button:hover)) &::before {
     transform: scale(1.05);
   }
 
+  /* stylelint-disable-next-line stylelint-plugin-mozilla/no-has-selector */
   .permission-popup-permission-item:active:hover &::before,
   .permission-popup-boost-item:active:hover:not(:has(.zen-permission-popup-boost-editor-button:hover)) &::before {
     transform: scale(0.95);
@@ -521,18 +521,18 @@
 .zen-permission-popup-permission-state-label,
 .zen-permission-popup-boost-state-label {
   opacity: 0.6;
-  font-size: smaller;
+  font-size: 10px;
   font-weight: 400;
   margin: 0;
 }
 
 #identity-box,
 #page-action-buttons {
-  fill-opacity: 0.6;
+  fill-opacity: 0.7;
 }
 
 #zen-site-data-footer {
-  border-top: 1px solid color-mix(in srgb, currentColor 6%, transparent);
+  border-top: 1px solid color-mix(in srgb, currentColor 5%, transparent);
   padding-top: 8px;
   margin: 2px 8px 8px 8px;
 
@@ -601,14 +601,17 @@
       position: absolute;
       width: 100%;
       height: 100%;
+      will-change: transform;
+
       @media (-moz-platform: macos) {
         background: linear-gradient(to bottom, light-dark(rgb(255, 255, 255), rgb(34, 34, 34)), light-dark(rgb(246, 246, 246), rgb(21, 21, 21)));
 
         box-shadow:
-          0 1px 2px rgba(0, 0, 0, 0.1),
+          0 2px 4px rgba(0, 0, 0, 0.1),
           inset 0 1px 0 light-dark(transparent, rgba(255, 255, 255, 0.15));
         border-radius: 6px;
-        --base-border-color: light-dark(rgba(0, 0, 0, 0.3), rgba(255, 255, 255, 0.1));
+        corner-shape: superellipse(var(--zen-squircle-value));
+        --base-border-color: light-dark(rgba(0, 0, 0, 0.4), rgba(255, 255, 255, 0.1));
         border: 0.5px solid light-dark(var(--base-border-color), rgb(21, 21, 21));
       }
 
@@ -619,6 +622,16 @@
 
       transition: transform 0.12s ease-in-out;
       box-sizing: border-box;
+    }
+
+    @media (-moz-platform: macos) {
+      &:first-child::before {
+        border-top-right-radius: calc(var(--panel-border-radius) - 2px);
+      }
+
+      &:last-child::before {
+        border-top-left-radius: calc(var(--panel-border-radius) - 2px);
+      }
     }
 
     &.active {
@@ -708,6 +721,11 @@
 
 /* Notification Stack */
 
+#notifications-toolbar {
+  /* only holds the fixed notification stack, so it shouldn't take up any space in #browser */
+  min-width: 0;
+}
+
 .notificationbox-stack {
   background: transparent;
 
@@ -776,6 +794,7 @@
       content: "";
       position: absolute;
       top: 0;
+      left: 0;
       height: 100%;
       width: 75%;
       opacity: 0;
@@ -793,5 +812,155 @@
 
   :root[inDOMFullscreen="true"] & {
     display: none;
+  }
+}
+
+#TabsToolbar-customization-target:is([zen-library-stack-open], [zen-library-stack-closing]) {
+  --zen-library-mask-ramp: 80px;
+  --zen-library-mask-bleed: var(--zen-toolbox-padding);
+  --zen-library-mask-overshoot: 10px;
+
+  mask-repeat: no-repeat;
+  mask-clip: no-clip;
+  mask-position: calc(-1 * var(--zen-library-mask-bleed)) calc(-1 * var(--zen-library-mask-bleed));
+  mask-size: calc(100% + var(--zen-library-mask-bleed) * 2) calc(100% + var(--zen-library-mask-bleed) + var(--zen-library-mask-ramp));
+  transition: mask-size var(--zen-library-open-duration) var(--zen-library-open-easing);
+
+  mask-image: linear-gradient(
+    to bottom,
+    black
+      calc(100% - var(--zen-library-mask-ramp)),
+    transparent
+      100%);
+
+  &[zen-library-stack-open] {
+    mask-size: calc(100% + var(--zen-library-mask-bleed) * 2) calc(100% - var(--zen-library-stack-height, 0px) + var(--zen-library-mask-overshoot) + var(--zen-library-mask-bleed));
+  }
+}
+
+%include zen-library-widget.css
+%include zen-library-media-preview.css
+
+.zen-swipe-add-space-container {
+  position: absolute;
+  height: 100%;
+  width: 100px;
+  right: 0;
+  translate: 100px 0;
+
+  &.space-section {
+    position: relative;
+    inset: auto;
+    translate: none;
+    flex: 0 0 auto;
+    width: 50px;
+    height: auto;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+.zen-swipe-add-space-background {
+  right: -50px;
+  height: 100%;
+  position: absolute;
+  width: 200px;
+
+  --bg: color-mix(in srgb, var(--zen-accent-button-color), transparent 30%);
+
+  background: radial-gradient(circle at right, 
+    var(--bg) 0%,
+    transparent 30%);
+  background-position-y: center;
+  transform-origin: right;
+  z-index: -1;
+
+  :root[zen-right-side="true"] & {
+    left: -50px;
+    right: unset;
+    
+    background: radial-gradient(circle at left, 
+      var(--bg) 0%,
+      transparent 20%);
+    transform-origin: left;
+  }
+}
+
+@property --zen-swipe-add-space-thickness {
+  syntax: '<length>';
+  initial-value: 0px;
+  inherits: true;
+}
+
+.zen-swipe-add-space-progress-badge {
+  position: absolute;
+  width: 30px;
+  aspect-ratio: 1;
+
+  --zen-swipe-add-space-thickness: 2.4px;
+  transition: --zen-swipe-add-space-thickness 0.2s ease-in-out;
+  contain: content;
+
+  --progress: var(--toolbox-textcolor);
+  --background: color-mix(in srgb, var(--zen-primary-color), white 15%);
+  
+  right: 10px;
+  top: 50%;
+  translate: 0 -50%;
+ 
+  border-radius: 100%;
+
+  background: var(--background);
+  box-shadow: 0px 1px 8px #0003;
+  
+  & .zen-swipe-add-space-icon {
+    position: absolute;
+    inset: 0;
+    background: url("chrome://browser/skin/zen-icons/plus.svg") center / 55% no-repeat;
+    -moz-context-properties: fill;
+    fill: var(--toolbox-textcolor);
+  }
+
+  & .zen-swipe-add-space-progress-ring {
+    display: block;
+    position: relative;
+    z-index: -1;
+
+    width: 100%;
+    height: 100%;
+  }
+
+  & .zen-swipe-add-space-progress-arc {
+    fill: none;
+    stroke: var(--progress);
+    stroke-width: var(--zen-swipe-add-space-thickness);
+    r: calc(15px - var(--zen-swipe-add-space-thickness) / 2);
+    stroke-dasharray: 0 100;
+    transform: rotate(-90deg) scaleX(-1);
+    transform-origin: center;
+  }
+
+  :root[zen-right-side="true"] & {
+    right: unset;
+    left: 10px;
+  }
+
+  .space-section & {
+    position: static;
+    translate: none;
+  }
+}
+
+.zen-swipe-add-space-container[readytoadd] {
+  & .zen-swipe-add-space-progress-badge {
+    --zen-swipe-add-space-thickness: 15px;
+    transform-origin: center;
+    animation: zen-swipe-add-icon-jump 0.2s ease-in-out;
+  }
+  
+  & .zen-swipe-add-space-icon {
+    fill: var(--zen-primary-color) !important;
   }
 }

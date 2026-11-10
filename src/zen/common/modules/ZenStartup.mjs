@@ -4,16 +4,27 @@
 
 import checkForZenUpdates, {
   createWindowUpdateAnimation,
+  playWindowSweepAnimation,
 } from "chrome://browser/content/ZenUpdates.mjs";
 
+/**
+ * Drives the parts of Zen's per-window startup that have to happen in a fixed
+ * order relative to Firefox's own startup.
+ */
 class ZenStartup {
   #watermarkIgnoreElements = ["zen-toast-container", "zen-browser-background"];
   #hasInitializedLayout = false;
+  #initialized = Promise.withResolvers();
 
   isReady = false;
-  promiseInitialized = new Promise(resolve => {
-    this.promiseInitializedResolve = resolve;
-  });
+
+  /**
+   * Resolves once the window has been laid out, the session restored and
+   * every startup-ordered Zen feature initialized.
+   */
+  get promiseInitialized() {
+    return this.#initialized.promise;
+  }
 
   init() {
     this.openWatermark();
@@ -32,7 +43,6 @@ class ZenStartup {
       return;
     }
     this.#hasInitializedLayout = true;
-    gZenKeyboardShortcutsManager.beforeInit();
     try {
       const kNavbarItems = ["nav-bar", "PersonalToolbar"];
       const kNewContainerId = "zen-appcontent-navbar-container";
@@ -53,13 +63,18 @@ class ZenStartup {
       // overlap and interaction issues with vertical tabs
       document.getElementById("browser").prepend(deckTemplate);
 
+      // global notifications (e.g. captive portal) live in this toolbar, keep it
+      // out of the sidebar so compact mode doesn't hide them along with it
+      document
+        .getElementById("browser")
+        .prepend(document.getElementById("notifications-toolbar"));
+
       gZenWorkspaces.init().then(() => {
         gZenUIManager.init();
-        this.#initUIComponents();
         this.#checkForWelcomePage();
       });
     } catch (e) {
-      console.error("ZenThemeModifier: Error initializing browser layout", e);
+      console.error("ZenStartup: Error initializing browser layout", e);
     }
     if (gBrowserInit.delayedStartupFinished) {
       this.delayedStartupFinished();
@@ -81,7 +96,6 @@ class ZenStartup {
     gZenWorkspaces.promiseInitialized.then(async () => {
       await delayedStartupPromise;
       await SessionStore.promiseAllWindowsRestored;
-      delete gZenUIManager.promiseInitialized;
       gZenCompactModeManager.init();
       // Fix for https://github.com/zen-browser/desktop/issues/7605, specially in compact mode
       if (gURLBar.hasAttribute("breakout-extend")) {
@@ -95,8 +109,7 @@ class ZenStartup {
         .getElementById("tabbrowser-arrowscrollbox")
         .setAttribute("orient", "vertical");
       this.isReady = true;
-      this.promiseInitializedResolve();
-      delete this.promiseInitializedResolve;
+      this.#initialized.resolve();
 
       setTimeout(() => {
         // Wait for the natural PlacesToolbar rebuild before invalidating, so
@@ -156,23 +169,22 @@ class ZenStartup {
     });
   }
 
-  #initUIComponents() {
-    const kUIComponents = ["ZenProgressBar", "ZenSpaceRoutingNavigation"];
-    for (let component of kUIComponents) {
-      const module = ChromeUtils.importESModule(
-        "resource:///modules/zen/ui/" + component + ".sys.mjs"
-      );
-      new module[component](window);
-    }
-  }
-
   #checkForWelcomePage() {
     const kWelcomeScreenSeenPref = "zen.welcome-screen.seen";
+    const kWelcomeScreenAlwaysShowPref = "zen.welcome-screen.always-show";
     if (Services.env.get("MOZ_HEADLESS")) {
       Services.prefs.setBoolPref(kWelcomeScreenSeenPref, true);
       return;
     }
-    if (!Services.prefs.getBoolPref(kWelcomeScreenSeenPref, false)) {
+    // The welcome wizard resizes and locks the window, which breaks the fullscreen
+    // kiosk window. Firefox's ASRouter stays off in kiosk mode too (gh-15976).
+    if (BrowserHandler.kiosk) {
+      return;
+    }
+    if (
+      !Services.prefs.getBoolPref(kWelcomeScreenSeenPref, false) ||
+      Services.prefs.getBoolPref(kWelcomeScreenAlwaysShowPref, false)
+    ) {
       Services.prefs.setBoolPref(kWelcomeScreenSeenPref, true);
       Services.prefs.setStringPref(
         "zen.updates.last-build-id",
@@ -194,6 +206,14 @@ class ZenStartup {
   async #createUpdateAnimation() {
     checkForZenUpdates();
     return await createWindowUpdateAnimation();
+  }
+
+  /**
+   * Entry point for privileged modules (e.g. the sync applier) to play the
+   * update sweep animation in this window.
+   */
+  playWindowSweepAnimation() {
+    return playWindowSweepAnimation();
   }
 }
 

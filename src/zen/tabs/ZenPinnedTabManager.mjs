@@ -34,7 +34,8 @@ class ZenPinnedTabsObserver {
     ChromeUtils.defineESModuleGetters(lazy, {
       // eslint-disable-next-line mozilla/valid-lazy
       E10SUtils: "resource://gre/modules/E10SUtils.sys.mjs",
-      TabStateCache: "resource:///modules/sessionstore/TabStateCache.sys.mjs",
+      TabStateCache:
+        "moz-src:///browser/components/sessionstore/TabStateCache.sys.mjs",
     });
     this.#listenPinnedTabEvents();
   }
@@ -144,10 +145,6 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
       return;
     }
     const tab = event.target;
-    if (this._ignoreNextTabPinnedEvent) {
-      delete this._ignoreNextTabPinnedEvent;
-      return;
-    }
     switch (action) {
       case "TabPinned":
         tab._zenClickEventListener = this._zenClickEventListener;
@@ -356,7 +353,7 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
         alwaysUnload &&
         ["close", "reset", "switch", "reset-switch"].includes(behavior)
       ) {
-        behavior = behavior.contains("reset")
+        behavior = behavior.includes("reset")
           ? "reset-unload-switch"
           : "unload-switch";
       }
@@ -373,6 +370,14 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
         case "reset-switch":
         case "switch":
           if (behavior.includes("unload")) {
+            if (pinnedTabs.some(tab => tab.selected)) {
+              const selectedTabs = pinnedTabs.filter(tab => tab.selected);
+              const tabToBlurTo = gBrowser._findTabToBlurTo(
+                selectedTabs[0],
+                pinnedTabs
+              );
+              gBrowser.selectedTab = tabToBlurTo;
+            }
             for (const tab of pinnedTabs) {
               if (tab.hasAttribute("glance-id")) {
                 // We have a glance tab inside the tab we are trying to unload,
@@ -465,14 +470,17 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
     }
 
     // Remove everything except the entry we want to keep
+    let url;
+    try {
+      url = Services.io.newURI(initialState.entry.url);
+    } catch {}
     state.entries = [
       {
         ...initialState.entry,
         triggeringPrincipal_base64: E10SUtils.serializePrincipal(
-          Services.scriptSecurityManager.createContentPrincipal(
-            Services.io.newURI(initialState.entry.url),
-            {}
-          )
+          url
+            ? Services.scriptSecurityManager.createContentPrincipal(url, {})
+            : Services.scriptSecurityManager.createNullPrincipal()
         ),
       },
     ];
@@ -484,6 +492,11 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
     // otherwise when we reset the pinned tab, it will scroll to the previous position
     // which can be confusing for the user, especially if they have a long page.
     delete state.scroll;
+
+    // Session storage is restored along with the tab, and sites that route on
+    // the client read their last view back out of it, so the page would come
+    // back showing where the tab had got to rather than the URL being reset to.
+    delete state.storage;
 
     SessionStore.setTabState(tab, state);
     this.resetPinChangedUrl(tab);
@@ -503,7 +516,7 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
     }
   }
 
-  addToEssentials(tab) {
+  addToEssentials(tab, { replicating = false } = {}) {
     // eslint-disable-next-line no-nested-ternary
     const tabs = tab
       ? // if it's already an array, dont make it [tab]
@@ -518,7 +531,12 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
       // eslint-disable-next-line no-shadow
       let tab = tabs[i];
       const section = gZenWorkspaces.getEssentialsSection(tab);
-      if (!this.canEssentialBeAdded(tab)) {
+      // canEssentialBeAdded gates user-initiated adds on the *active* space's
+      // container. A replicated add mirrors a decision already made in another
+      // window or on another device, always into the tab's own container
+      // section.
+      if (!replicating && !this.canEssentialBeAdded(tab)) {
+        this.log(`addToEssentials rejected for ${tab.id}`);
         movedAll = false;
         continue;
       }
@@ -541,7 +559,6 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
         });
       } else {
         gBrowser.pinTab(tab);
-        this._ignoreNextTabPinnedEvent = true;
       }
       tab.setAttribute("zenDefaultUserContextId", true);
       if (tab.selected) {
@@ -570,6 +587,13 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
     for (let i = 0; i < tabs.length; i++) {
       // eslint-disable-next-line no-shadow
       const tab = tabs[i];
+      if (this._canLog) {
+        // eslint-disable-next-line no-console
+        console.trace(
+          `ZenPinnedTabManager: removing tab ${tab.id} from essentials ` +
+            `(unpin=${unpin})`
+        );
+      }
       tab.removeAttribute("zen-essential");
       if (
         gZenWorkspaces.workspaceEnabled &&
@@ -650,7 +674,7 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
     document
       .getElementById("context_zen-edit-tab-title")
       .addEventListener("command", event => {
-        gZenVerticalTabsManager.renameTabStart(event);
+        gZenTabRenamer.start(event);
       });
     document
       .getElementById("context_zen-edit-tab-icon")
@@ -668,7 +692,7 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
             }
             gBrowser.setIcon(tab, icon);
             lazy.TabStateCache.update(tab.permanentKey, {
-              image: null,
+              image: icon || null,
             });
           },
         });
@@ -706,7 +730,8 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
         }
       }
     );
-    zenAddEssential.hidden = isEssential || !!contextTab.group;
+    zenAddEssential.hidden =
+      isEssential || contextTab.group?.hasAttribute("split-view-group");
     document.l10n
       .formatValue("tab-context-zen-add-essential-badge", {
         num: gBrowser._numZenEssentials,
@@ -1019,6 +1044,9 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
   }
 
   canEssentialBeAdded(tab) {
+    if (tab.group?.hasAttribute("split-view-group")) {
+      return false;
+    }
     const isExistingEssentialTab = tab.hasAttribute("zen-essential");
     return (
       !(

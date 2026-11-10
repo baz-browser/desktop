@@ -5,7 +5,7 @@
  */
 
 #PanelUI-zen-gradient-generator {
-  --panel-width: 380px;
+  --panel-width: 364px;
   --panel-padding: 10px;
   min-width: var(--panel-width);
 }
@@ -231,6 +231,13 @@
     width: var(--zen-thumb-width);
     cursor: pointer;
     border: none;
+    transform: scale(1);
+    transform-origin: center;
+    transition: transform 0.5s;
+  }
+
+  &:hover::-moz-range-thumb {
+    transform: scale(1.1);
   }
 
   &::-moz-range-track {
@@ -338,7 +345,7 @@
       display: none;
     }
 
-    &:hover {
+    &:not([disabled]):hover {
       background: light-dark(rgba(0, 0, 0, 0.1), rgba(255, 255, 255, 0.1));
     }
 
@@ -387,10 +394,10 @@
     pointer-events: none;
   }
 
-  &::before {
-    background-image: url(chrome://browser/content/zen-images/grain-bg.png);
-    opacity: var(--zen-grainy-background-opacity, 0);
-    mix-blend-mode: hard-light;
+  & .zen-theme-picker-texture-face {
+    background-image: var(--zen-grain-texture);
+    background-size: var(--zen-grain-tile) var(--zen-grain-tile);
+    opacity: calc(var(--zen-grain-alpha) * max(0.5, var(--zen-grainy-background-opacity, 0)));
     width: 60%;
     height: 60%;
     pointer-events: none;
@@ -399,8 +406,11 @@
     left: 50%;
     transform: translate(-50%, -50%);
     z-index: 1;
-    content: "";
     position: absolute;
+  }
+
+  &[zen-grain-texture="none"] .zen-theme-picker-texture-face {
+    display: none;
   }
 
   & .zen-theme-picker-texture-dot {

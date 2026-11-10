@@ -9,17 +9,13 @@
   },
   {
     "type": "phabricator",
-    "id": "D284404",
-    "name": "Add urlbar closeOnWindowBlur preference",
-    "replaces": {
-      "\n\n": "\n     // may want to figure out a more robust way to detect abandonment."
-    }
+    "id": "D323933",
+    "name": "Issue 15123"
   },
   {
-    "type": "local",
-    // TODO: Convert into https://phabricator.services.mozilla.com/D298079
-    //    once it gets accepted.
-    "path": "firefox/allow_backdrop_to_work_on_transparency.patch"
+    "type": "phabricator",
+    "id": "D327914",
+    "name": "Backdrop filter reads web content"
   },
   {
     "type": "local",
@@ -37,22 +33,39 @@
   },
   {
     "type": "phabricator",
-    "id": "D291714",
-    "name": "gh-12979 Clip dirty_rect to device_size"
-  },
-  {
-    "type": "phabricator",
-    "ids": [
-      "D312028",
-      "D312036",
-      "D312091"
-    ],
+    "id": "D312091",
     "name": "Expose tiled attribute to all platforms"
   },
   {
-    "type": "patch",
-    "url": "https://gitlab.archlinux.org/archlinux/packaging/packages/firefox/-/raw/main/0002-Bug-2057577-DOM-Media-Add-FFmpeg-63-support.-r-alwu-.patch",
-    "dest": "firefox",
-    "filename": "bug-2057577-ffmpeg-63-support.patch"
+    "type": "phabricator",
+    "id": "D298708",
+    "name": "Issue 14990",
+    "replaces": {
+      "this._lastJsonLength = uncompressedBytes;": "this._lastJsonLength = uncompressedBytes.jsonLength;",
+      "          jsonLengthHint,": "          lengthHint: jsonLengthHint,"
+    }
+  },
+  {
+    "type": "phabricator",
+    "id": "D321446",
+    "name": "Issue 14710"
+  },
+  {
+    "type": "local",
+    "path": "firefox/override_cert_checks_temp.patch"
+  },
+  {
+    "type": "phabricator",
+    "id": "D323514",
+    "name": "Fix HEVC video stutters and dropped frames"
+  },
+  {
+    "type": "phabricator",
+    "id": "D337289",
+    "name": "Arc browser migrator",
+    "replaces": {
+      // IMPORTANT: Remember to change the module URI to point to Zen's profile migrator instead of the default Chrome one.
+      "ArcProfileMigrator: {\n+    moduleURI:\n+      \"moz-src:///browser/components/migration/ChromeProfileMigrator.sys.mjs\"": "ArcProfileMigrator: {\n+    moduleURI:\n+      \"resource:///modules/zen/ZenProfileMigrators.sys.mjs\""
+    }
   }
 ]

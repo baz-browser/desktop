@@ -4,6 +4,13 @@
 
 import { JSONFile } from "resource://gre/modules/JSONFile.sys.mjs";
 
+const lazy = {};
+
+ChromeUtils.defineESModuleGetters(lazy, {
+  BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
+  PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
+});
+
 class nsZenSpaceRoutingManager {
   #file = null;
   #saveFilename = "zen-space-routing.jsonlz4";
@@ -27,7 +34,7 @@ class nsZenSpaceRoutingManager {
     const element = window.MozXULElement.parseXULToFragment(`
         <menuseparator/>
         <menuitem id="context_zen-add-domain-to-routing"
-                  data-lazy-l10n-id="tab-context-zen-add-domain-to-sr"
+                  data-l10n-id="tab-context-zen-add-domain-to-sr"
                   data-l10n-args='{"tabCount": 1}'/>
       `);
     window.document.getElementById("context_undoCloseTab").after(element);
@@ -124,6 +131,77 @@ class nsZenSpaceRoutingManager {
   }
 
   /**
+   * Resolves the container a startup URI from another application belongs in,
+   * so Tabbrowser can hand it to the initial tab.
+   *
+   * @param {Window} win - The browser window receiving the startup URI
+   * @returns {number|null} The container to use, or null to leave it alone
+   */
+  getStartupUserContextId(win) {
+    try {
+      const targetRoute = this.#startupExternalRoute(win);
+      if (!targetRoute) {
+        return null;
+      }
+
+      const workspace =
+        win.gZenWorkspaces.getWorkspaceFromId(targetRoute) ??
+        win.gZenWorkspaces
+          .getWorkspaces(true)
+          .find(space => space.uuid === targetRoute);
+      return workspace?.containerTabId ?? null;
+    } catch (err) {
+      console.error("[ZenSpaceRouting]: Error routing the startup URI:", err);
+      return null;
+    }
+  }
+
+  /**
+   * The space an externally supplied startup URI is configured to land in, or
+   * null when Firefox's usual handling should be left alone.
+   *
+   * @param {Window} win - The browser window receiving the startup URI
+   * @returns {string|null} The destination space's id, or null
+   */
+  #startupExternalRoute(win) {
+    const extraOptions = win.arguments?.[1];
+    if (
+      !(extraOptions instanceof Ci.nsIPropertyBag2) ||
+      !extraOptions.hasKey("fromExternal") ||
+      !extraOptions.getPropertyAsBool("fromExternal")
+    ) {
+      return null;
+    }
+
+    // Resolved synchronously for anything but the homepage, which is never
+    // an external link.
+    const uriString = win.gBrowserInit.uriToLoadPromise;
+    if (typeof uriString != "string") {
+      return null;
+    }
+
+    const targetRoute = this.routeUri(uriString, { fromExternal: true });
+    return targetRoute === "most-recent-space" ? null : targetRoute;
+  }
+
+  /**
+   * Moves the initial tab into the space its rule points at, when the startup
+   * URI came from another application.
+   *
+   * @param {Element} initialTab - The tab the startup URI was loaded into
+   * @param {Window} win - The browser window receiving the startup URI
+   * @returns {Promise<void>} Resolved once the tab has been routed
+   */
+  async routeStartupTab(initialTab, win) {
+    const targetRoute = this.#startupExternalRoute(win);
+    if (!targetRoute) {
+      return;
+    }
+
+    await this.#routeToWorkspace(targetRoute, initialTab, false, win);
+  }
+
+  /**
    * Callback that will be executed from tabbrowser.js
    *
    * @param {string} uriString - The URI as a string
@@ -141,6 +219,14 @@ class nsZenSpaceRoutingManager {
     }
 
     this.#routeToWorkspace(targetRoute, newTab, options.inBackground, win);
+  }
+
+  shouldDeferTabSelection(beforeResult, win) {
+    return (
+      beforeResult.isRouteFound &&
+      beforeResult.targetRoute !== win.gZenWorkspaces.activeWorkspace &&
+      this.#isMostRecentBrowserWindow(win)
+    );
   }
 
   /**
@@ -198,6 +284,93 @@ class nsZenSpaceRoutingManager {
   }
 
   /**
+   * Picks the browser window an externally opened URI should be handed to.
+   *
+   * @param {nsIURI} uri - The URI about to be opened
+   * @param {Window} defaultWindow - The window Firefox picked
+   * @returns {Window} The window the URI should be opened in
+   */
+  getWindowForExternalUri(uri, defaultWindow) {
+    try {
+      const targetRoute = this.routeUri(uri?.spec, { fromExternal: true });
+      if (
+        targetRoute === "most-recent-space" ||
+        this.#isDisplayingWorkspace(defaultWindow, targetRoute)
+      ) {
+        return defaultWindow;
+      }
+
+      const isPrivate =
+        lazy.PrivateBrowsingUtils.isWindowPrivate(defaultWindow);
+      if (isPrivate) {
+        return defaultWindow;
+      }
+      const candidates = lazy.BrowserWindowTracker.getOrderedWindows({
+        private: isPrivate,
+      });
+      for (const win of candidates) {
+        if (
+          win !== defaultWindow &&
+          this.#isDisplayingWorkspace(win, targetRoute)
+        ) {
+          return win;
+        }
+      }
+    } catch (err) {
+      console.error(
+        "[ZenSpaceRouting]: Error picking a window for an external URI:",
+        err
+      );
+    }
+
+    return defaultWindow;
+  }
+
+  /**
+   * Checks whether a window is a usable routing destination that already
+   * displays the given space.
+   *
+   * @param {Window} win - The candidate window
+   * @param {string} workspaceId - The space the URI routes to
+   * @returns {boolean} True when the window currently displays that space
+   * @private
+   */
+  #isDisplayingWorkspace(win, workspaceId) {
+    return (
+      !!win &&
+      !win.closed &&
+      !!win.toolbar?.visible &&
+      !!win.gZenStartup?.isReady &&
+      !!win.gZenWorkspaces?.workspaceEnabled &&
+      win.gZenWorkspaces.activeWorkspace === workspaceId
+    );
+  }
+
+  /**
+   * Whether a matched route's destination container should replace the one the
+   * new tab would otherwise get.
+   *
+   * @param {number|undefined} userContextId - The container the tab would inherit
+   * @param {boolean} fromExternal - True when the link came from outside the browser
+   * @param {Window} win - The window the tab is being added to
+   * @returns {boolean} True when the route's container should be applied
+   */
+  shouldUseRouteContainer(userContextId, fromExternal, win) {
+    if (typeof userContextId === "undefined" || fromExternal) {
+      return true;
+    }
+
+    const workspaces = win?.gZenWorkspaces;
+    if (!workspaces?.workspaceEnabled) {
+      return false;
+    }
+
+    const sourceContainerId =
+      workspaces.getActiveWorkspaceFromCache()?.containerTabId ?? 0;
+    return (userContextId ?? 0) === sourceContainerId;
+  }
+
+  /**
    * Checks if the tab should be processed or not
    *
    * @param {object} options - The tab creation options
@@ -209,10 +382,10 @@ class nsZenSpaceRoutingManager {
       return nsZenSpaceRoutingManager.SKIP_TYPE.SKIPPED_TAB;
     }
 
-    // addTab() is being called when the session restores.
-    // To avoid automatically routing these tabs,
-    // a check if the restore is already complete is needed
-    if (!win.gZenStartup.isReady) {
+    // addTab() is called for restored tabs before startup is ready, but an
+    // external link can also arrive during that window. Keep restored tabs in
+    // their saved spaces while still honoring routing for external links.
+    if (!win.gZenStartup.isReady && !options.fromExternal) {
       return nsZenSpaceRoutingManager.SKIP_TYPE.RESTORED_TAB;
     }
 
@@ -245,10 +418,7 @@ class nsZenSpaceRoutingManager {
           if (targetWorkspace) {
             workspaces.moveTabToWorkspace(newTab, targetWorkspace.uuid);
 
-            const mostRecentWindow =
-              Services.wm.getMostRecentWindow("navigator:browser");
-            const isOriginatingWindow = win === mostRecentWindow;
-            if (isOriginatingWindow) {
+            if (this.#isMostRecentBrowserWindow(win)) {
               win.gZenWorkspaces.lastSelectedWorkspaceTabs[
                 targetWorkspace.uuid
               ] = newTab;
@@ -263,6 +433,10 @@ class nsZenSpaceRoutingManager {
     } catch (err) {
       console.error("[ZenSpaceRouting]: Error moving tab to workspace:", err);
     }
+  }
+
+  #isMostRecentBrowserWindow(win) {
+    return win === Services.wm.getMostRecentWindow("navigator:browser");
   }
 
   /**
@@ -326,8 +500,8 @@ class nsZenSpaceRoutingManager {
       case "regex": {
         let unmodifiedReference = route.reference;
         try {
-          // Use unmodified parameters for the regex test
-          const regex = new RegExp(unmodifiedReference);
+          // Case insensitive match (see gh-15835)
+          const regex = new RegExp(unmodifiedReference, "i");
           if (regex.test(uriString)) {
             return true;
           }
@@ -369,21 +543,14 @@ class nsZenSpaceRoutingManager {
   }
 
   /**
-   * Opens the Space Routing editor in a new popup window.
+   * Shows the routes, which live in the library.
    *
-   * @param {Window} parentWindow - The parent browser window
-   * @returns {Window|null} The instanced editor window
+   * @param {Window} parentWindow - The window to show them in
    */
-  async openSpaceRoutingDialog(parentWindow) {
-    await parentWindow.gDialogBox.open(
-      "chrome://browser/content/zen-components/windows/zen-space-routing.xhtml",
-      {
-        features: "resizable=no",
-        sizeTo: "available",
-        allowDuplicateDialogs: false,
-        parentWindow,
-      }
-    );
+  openSpaceRoutingSettings(parentWindow) {
+    // The library is a custom element of the window it belongs to, which is
+    // the only place a shared module can reach it from.
+    parentWindow.customElements.get("zen-library")?.toggle("space-routing");
   }
 
   /**
@@ -502,7 +669,8 @@ class nsZenSpaceRoutingManager {
 
     newRoute.reference = routeReference;
     this.updateRoute(newRoute);
-    this.openSpaceRoutingDialog(parentWindow);
+    this.saveRoutes();
+    this.openSpaceRoutingSettings(parentWindow);
   }
 
   /**

@@ -34,9 +34,9 @@ class nsZenGlanceManager extends nsZenDOMOperatedFeature {
 
   // Arc animation configuration
   #ARC_CONFIG = Object.freeze({
-    ARC_STEPS: 80, // Browser interpolates between keyframes natively
-    MAX_ARC_HEIGHT: 20,
-    ARC_HEIGHT_RATIO: 0.2, // Arc height = distance * ratio (capped at MAX_ARC_HEIGHT)
+    ARC_STEPS: 90, // Browser interpolates between keyframes natively
+    MAX_ARC_HEIGHT: 30,
+    ARC_HEIGHT_RATIO: 0.4, // Arc height = distance * ratio (capped at MAX_ARC_HEIGHT)
   });
 
   #GLANCE_ANIMATION_DURATION = Services.prefs.getIntPref(
@@ -63,6 +63,146 @@ class nsZenGlanceManager extends nsZenDOMOperatedFeature {
       .addEventListener("click", this.onOverlayClick.bind(this));
   }
 
+  #detached = null;
+
+  get detachedBrowser() {
+    return this.#detached?.browser ?? null;
+  }
+
+  #createDetachedHost() {
+    const host = window.MozXULElement.parseXULToFragment(`
+      <html:div id="zen-glance-detached">
+        <html:div class="zen-glance-detached-backdrop"/>
+        <html:div class="browserContainer">
+          <html:div class="browserStack"/>
+        </html:div>
+      </html:div>
+    `).firstElementChild;
+    host
+      .querySelector(".zen-glance-detached-backdrop")
+      .addEventListener("click", () => this.closeDetachedGlance());
+    document.getElementById("zen-main-app-wrapper").appendChild(host);
+    return host;
+  }
+
+  /**
+   * Opens a detached glance.
+   *
+   * @param {object} data - The URL, its triggering principal, the point the
+   *   glance animates out of as clientX/clientY in window coordinates, and
+   *   optionally the userContextId to load in
+   * @returns {Promise<{browser: Element, closed: Promise<string>}|null>}
+   *   Once open, the glance's browser and a promise for its closing, which
+   */
+  async openDetachedGlance(data) {
+    if (this.#detached || !this.#isGlanceLoadAllowed(data)) {
+      return null;
+    }
+    const host = this.#createDetachedHost();
+    const wrapper = host.querySelector(".browserContainer");
+    const browser = document.createXULElement("browser");
+    browser.setAttribute("type", "content");
+    browser.setAttribute("remote", "true");
+    browser.setAttribute("maychangeremoteness", "true");
+    browser.setAttribute("disableglobalhistory", "true");
+    browser.setAttribute("messagemanagergroup", "browsers");
+    browser.setAttribute("nodefaultsrc", "true");
+    if (data.userContextId) {
+      browser.setAttribute("usercontextid", data.userContextId);
+    }
+    host.querySelector(".browserStack").appendChild(browser);
+    wrapper.appendChild(this.#createNewOverlayButtons());
+    for (const selector of [
+      ".zen-glance-sidebar-open",
+      ".zen-glance-sidebar-split",
+    ]) {
+      wrapper.querySelector(selector)?.remove();
+    }
+
+    const hostRect = host.getBoundingClientRect();
+    const startPoint = {
+      clientX: data.clientX - hostRect.left,
+      clientY: data.clientY - hostRect.top,
+      width: 0,
+      height: 0,
+    };
+    let resolveClosed;
+    const whenClosed = new Promise(resolve => {
+      resolveClosed = resolve;
+    });
+    this.#detached = {
+      host,
+      wrapper,
+      browser,
+      startPoint,
+      closing: false,
+      resolveClosed,
+    };
+
+    browser.loadURI(Services.io.newURI(data.url), {
+      triggeringPrincipal: data.triggeringPrincipal,
+    });
+    wrapper.setAttribute("animate", true);
+    await gZenUIManager.elementAnimate(
+      wrapper,
+      this.#createGlanceArcSequence(startPoint, "opening", null, hostRect),
+      {
+        duration: gZenUIManager.testingEnabled
+          ? 0
+          : this.#GLANCE_ANIMATION_DURATION,
+        easing: "ease-in-out",
+      }
+    );
+    wrapper.removeAttribute("animate");
+    wrapper.setAttribute("has-finished-animation", true);
+    return { browser, closed: whenClosed };
+  }
+
+  /**
+   * @param {object} [options]
+   * @param {boolean} [options.skipPermitUnload] - Close even if the page
+   *   would rather not unload
+   */
+  async closeDetachedGlance({ skipPermitUnload = false } = {}) {
+    const detached = this.#detached;
+    if (!detached || detached.closing) {
+      return;
+    }
+    if (!skipPermitUnload && !detached.browser.permitUnload().permitUnload) {
+      return;
+    }
+    detached.closing = true;
+    const { host, wrapper, browser } = detached;
+    detached.resolveClosed();
+    this.#animateSidebarButtons(
+      wrapper.querySelector(".zen-glance-sidebar-container")
+    );
+    host.setAttribute("fade-out", true);
+    wrapper.removeAttribute("has-finished-animation");
+    wrapper.setAttribute("animate", true);
+    try {
+      await gZenUIManager.elementAnimate(
+        wrapper,
+        this.#createGlanceArcSequence(
+          detached.startPoint,
+          "closing",
+          null,
+          host.getBoundingClientRect()
+        ),
+        {
+          duration: gZenUIManager.testingEnabled
+            ? 0
+            : this.#GLANCE_ANIMATION_DURATION,
+          easing: "ease-out",
+        }
+      );
+    } finally {
+      browser.destroy();
+      host.remove();
+      this.#detached = null;
+    }
+  }
+
   #setupPreferences() {
     XPCOMUtils.defineLazyPreferenceGetter(
       this._lazyPref,
@@ -74,6 +214,7 @@ class nsZenGlanceManager extends nsZenDOMOperatedFeature {
 
   #setupObservers() {
     Services.obs.addObserver(this, "quit-application-requested");
+    window.addEventListener("unload", this.onUnload.bind(this), { once: true });
   }
 
   #insertIntoContextMenu() {
@@ -102,7 +243,10 @@ class nsZenGlanceManager extends nsZenDOMOperatedFeature {
   handleMainCommandSet(event) {
     const command = event.target;
     const commandHandlers = {
-      cmd_zenGlanceClose: () => this.closeGlance({ onTabClose: true }),
+      cmd_zenGlanceClose: () =>
+        this.#detached
+          ? this.closeDetachedGlance()
+          : this.closeGlance({ onTabClose: true }),
       cmd_zenGlanceExpand: () => this.fullyOpenGlance(),
       cmd_zenGlanceSplit: () => this.splitGlance(),
     };
@@ -167,11 +311,20 @@ class nsZenGlanceManager extends nsZenDOMOperatedFeature {
   }
 
   /**
-   * Clean up all glances when the application is unloading
+   * Closes any open glances, either when the window unloads or when a quit is
+   * requested.
+   *
+   * @param {Event} [event] - The unload event, or nothing for a quit request.
    */
-  onUnload() {
-    for (const [, glance] of this.#glances) {
-      gBrowser.removeTab(glance.tab, { animate: false });
+  onUnload(event) {
+    if (event?.type === "unload") {
+      // The window is really going now, so stop listening. A quit request can
+      // still be canceled, so that path leaves the observer in place.
+      Services.obs.removeObserver(this, "quit-application-requested");
+    } else {
+      for (const [, glance] of this.#glances) {
+        gBrowser.removeTab(glance.tab, { animate: false });
+      }
     }
     this.#glances.clear();
   }
@@ -273,11 +426,11 @@ class nsZenGlanceManager extends nsZenDOMOperatedFeature {
    */
   #createNewOverlayButtons() {
     const template = document.getElementById("zen-glance-sidebar-template");
-    const newButtons = template.content.cloneNode(true);
-    const container = newButtons.querySelector(".zen-glance-sidebar-container");
-
+    const container = template.content
+      .querySelector(".zen-glance-sidebar-container")
+      .cloneNode(true);
     this.#animateOverlayButtons(container);
-    return newButtons;
+    return container;
   }
 
   /**
@@ -328,7 +481,7 @@ class nsZenGlanceManager extends nsZenDOMOperatedFeature {
     return await this.#imageBitmapToObjectURL(
       await window.browsingContext.currentWindowGlobal.drawSnapshot(
         rect,
-        zoomLevel,
+        zoomLevel * (window.devicePixelRatio || 1),
         "transparent",
         undefined
       )
@@ -392,7 +545,7 @@ class nsZenGlanceManager extends nsZenDOMOperatedFeature {
       return Promise.resolve(this.#currentTab);
     }
 
-    // Existing-tab glances perform no navigation and are exempt; for fresh
+    // Existing-tab glances perform no navigation and are exempt. For fresh
     // loads, refuse any URL the triggering principal isn't allowed to load
     // (e.g. a web page linking to file://).
     if (!existingTab && !this.#isGlanceLoadAllowed(data)) {
@@ -617,9 +770,16 @@ class nsZenGlanceManager extends nsZenDOMOperatedFeature {
    * @param {object} data - Glance data with position and dimensions
    * @param {string} direction - 'opening' or 'closing'
    * @param {Element|null} imageDataElement - The image data element for preview (optional)
+   * @param {DOMRect|null} referenceRect - Bounds the glance opens within;
+   *   defaults to the tab panels
    * @returns {object} Animation sequence object
    */
-  #createGlanceArcSequence(data, direction, imageDataElement = null) {
+  #createGlanceArcSequence(
+    data,
+    direction,
+    imageDataElement = null,
+    referenceRect = null
+  ) {
     let { clientX, clientY, width, height } = data;
     if (imageDataElement?.parentElement) {
       // Since we are animating scale transforms on the wrapper, we need to
@@ -649,9 +809,9 @@ class nsZenGlanceManager extends nsZenDOMOperatedFeature {
     // Calculate start and end positions based on direction
     let startPosition, endPosition;
 
-    const tabPanelsRect = window.windowUtils.getBoundsWithoutFlushing(
-      gBrowser.tabpanels
-    );
+    const tabPanelsRect =
+      referenceRect ??
+      window.windowUtils.getBoundsWithoutFlushing(gBrowser.tabpanels);
 
     const widthPercent = 0.8;
     if (direction === "opening") {
@@ -708,7 +868,7 @@ class nsZenGlanceManager extends nsZenDOMOperatedFeature {
     const arcDirection = shouldArcDownward ? 1 : -1;
 
     function easeOutBack(x) {
-      const c1 = 0.4;
+      const c1 = 0.6;
       const c3 = c1 + 1;
       return 1 + c3 * (x - 1) ** 3 + c1 * (x - 1) ** 2;
     }
@@ -988,6 +1148,7 @@ class nsZenGlanceManager extends nsZenDOMOperatedFeature {
   #prepareGlanceForClosing() {
     // Critical: This line must not be touched - it works for unknown reasons
     this.#currentTab.style.display = "none";
+    this.#currentTab.setAttribute("glance-closing", true);
     this.overlay.setAttribute("fade-out", true);
     this.overlay.style.pointerEvents = "none";
     this.quickCloseGlance({ justAnimateParent: true, clearID: false });
@@ -1627,7 +1788,19 @@ class nsZenGlanceManager extends nsZenDOMOperatedFeature {
     this.#handleZenFolderPinning();
     gBrowser.moveTabAfter(this.#currentTab, this.#currentParentTab);
 
+    if (this.#currentTab.hasAttribute("zen-workspace-id")) {
+      // the glance may have been opened in another space (e.g. from an essential,
+      // which is shared between spaces). the tab now lives in the current space,
+      // keep its id in sync
+      this.#currentTab.setAttribute(
+        "zen-workspace-id",
+        gZenWorkspaces.activeWorkspace
+      );
+    }
+
     this.#prepareTabForFullOpen();
+
+    gZenVerticalTabsManager.animateItemOpen(this.#currentTab);
 
     const sidebarButtons = this.browserWrapper.querySelector(
       ".zen-glance-sidebar-container"

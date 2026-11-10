@@ -27,7 +27,7 @@ dialog::part(dialog-button) {
 
   position: relative;
   border: none;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--zen-squircle-value));
 }
 
 @media (-moz-platform: macos) {
@@ -65,6 +65,30 @@ dialog::part(dialog-button) {
   }
 }
 
+dialog::part(dialog-button) {
+  &:is(.ghost) {
+    --button-background-color: transparent !important;
+
+    background-color: transparent !important;
+    box-shadow: none !important;
+    padding-inline-end: 1.2rem !important;
+
+    &:hover {
+      --button-background-color: light-dark(
+        rgba(28, 28, 28, 0.1),
+        rgba(255, 255, 255, 0.1)
+      ) !important;
+
+      background-color: var(--button-background-color) !important;
+    }
+
+    &::after {
+      content: none !important;
+      display: none !important;
+    }
+  }
+}
+
 xul|button:not(#zen-workspaces-button):active {
   transform: scale(0.98);
 }
@@ -76,5 +100,54 @@ dialog::part(dialog-button) {
   transition: scale 0.2s;
   &:active {
     scale: 0.98;
+  }
+}
+
+:root {
+  --zen-accent-button-color: light-dark(
+    oklch(from var(--zen-primary-color) clamp(0.35, l, 0.6) c h),
+    oklch(from var(--zen-primary-color) clamp(0.7, l, 0.85) c h)
+  );
+  --zen-accent-button-background: light-dark(
+    oklch(from var(--zen-primary-color) clamp(0.35, l, 0.6) c h),
+    oklch(from var(--zen-primary-color) clamp(0.55, l, 0.7) c h)
+  );
+}
+
+.zen-big-accent-button {
+  appearance: none;
+  border: none;
+  border-radius: 12px;
+  padding: 1.2rem 1rem;
+  background: transparent;
+  color: var(--zen-accent-button-color);
+  font: inherit;
+  font-size: 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+  will-change: transform;
+  transition: scale 0.15s ease-out;
+
+  &:hover {
+    scale: 1.03;
+    filter: brightness(1.1);
+  }
+
+  &:active:hover {
+    scale: 1;
+    color: color-mix(in srgb, var(--zen-accent-button-color) 80%, transparent);
+  }
+
+  &.primary {
+    background: var(--zen-accent-button-background);
+    color: white;
+
+    &:hover {
+      filter: brightness(1.1);
+    }
+
+    &:active:hover {
+      color: rgba(255, 255, 255, 0.8);
+    }
   }
 }
